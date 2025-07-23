@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "file": [],
+  "include": [],
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "node20",
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "verbatimModuleSyntax": true,
+    "noImplicitOverride": true,
+    "sourceMap": true,
+  },
+}

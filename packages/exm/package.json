@@ -1,0 +1,32 @@
+{
+  "name": "@feb/exm",
+  "version": "0.0.2",
+  "type": "module",
+  "files": [
+    "bin/exm.js",
+    "lib/**/*{.js,.d.ts}"
+  ],
+  "exports": {
+    ".": "./lib/index.js"
+  },
+  "bin": {
+    "exm": "./bin/exm.js"
+  },
+  "scripts": {
+    "prepublishOnly": "npm run build --clean && npm run build",
+    "build": "tsc -b",
+    "test": "npm run test:compile && npm run t",
+    "test:compile": "tsc -b test/tsconfig.json",
+    "t": "vitest run"
+  },
+  "devDependencies": {
+    "@feb/workflow": "workspace:*",
+    "@types/node": "catalog:",
+    "@types/yargs": "^17.0.35",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "dependencies": {
+    "yargs": "^18.0.0"
+  }
+}

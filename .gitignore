@@ -1,0 +1,7 @@
+node_modules
+*.tsbuildinfo
+lib
+lerna-debug.log
+.turbo
+.vitest-attachments
+.env*.local

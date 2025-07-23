@@ -1,0 +1,14 @@
+{
+  "extends": "@feb/workflow/tsconfig/test",
+  "include": ["."],
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "lib",
+    "types": [
+      "node",
+      "vitest"
+    ],
+    "skipLibCheck": true
+  },
+  "references": [{"path": "../tsconfig.json"}]
+}

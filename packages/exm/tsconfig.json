@@ -1,0 +1,11 @@
+{
+  "extends": "@feb/workflow/tsconfig/lib",
+  "include": ["src"],
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib",
+    "types": [
+      "node"
+    ]
+  }
+}
