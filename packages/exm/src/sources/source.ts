@@ -20,7 +20,7 @@ export interface ResolvedExtension {
 
 export interface ResolvedGitExtension {
   readonly url: string;
-  readonly commit: string;
+  readonly ref?: string;
   readonly subpath?: string;
 }
 
@@ -28,6 +28,11 @@ export interface MaterializedExtension {
   readonly id: string;
   readonly path: string;
   readonly mode: 'clone' | 'link';
+  readonly git?: MaterializedGitExtension;
+}
+
+export interface MaterializedGitExtension {
+  readonly commit: string;
 }
 
 export interface ExtensionSource {
@@ -36,6 +41,8 @@ export interface ExtensionSource {
   canResolve(spec: string): boolean;
 
   resolve(request: ExtensionRequest, context: SourceContext): Promise<ResolvedExtension>;
+
+  adoptExisting?(resolved: ResolvedExtension, context: SourceContext): Promise<MaterializedExtension | undefined>;
 
   materialize(resolved: ResolvedExtension, context: SourceContext): Promise<MaterializedExtension>;
 }

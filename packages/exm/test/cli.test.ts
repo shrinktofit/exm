@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { main } from '../src/cli.js';
+import { readJsonObject } from '../src/config/package-json.js';
 
 let logMessages: string[];
 let errorMessages: string[];
@@ -35,10 +36,14 @@ describe('main', () => {
   });
 
   it('should print the package version with --version and -v', async () => {
+    const packageJson = await readJsonObject('package.json');
+    const version = packageJson.version;
+    expect(version).toBeTypeOf('string');
+
     await expect(main(['--version'])).resolves.toBe(0);
     await expect(main(['-v'])).resolves.toBe(0);
 
-    expect(logMessages).toEqual(['0.0.1', '0.0.1']);
+    expect(logMessages).toEqual([version, version]);
   });
 
   it('should print install command help', async () => {

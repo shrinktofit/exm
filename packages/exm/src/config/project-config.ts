@@ -1,10 +1,16 @@
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { parse } from 'yaml';
+import { pathExists } from '../fs/path.js';
 import { readJsonObject, isJsonObject } from './package-json.js';
+
+export const EXM_LOCAL_FILE = 'exm.local.yaml';
 
 export interface ExmProjectConfig {
   readonly projectRoot: string;
   readonly installDir: string;
   readonly dependencies: Readonly<Record<string, string>>;
+  readonly usesLocalLock: boolean;
 }
 
 export interface LoadProjectConfigOptions {
@@ -17,37 +23,35 @@ export async function loadProjectConfig(
 ): Promise<ExmProjectConfig> {
   const resolvedProjectRoot = path.resolve(projectRoot);
   const packageJson = await readJsonObject(path.join(resolvedProjectRoot, 'package.json'));
-  const exm = packageJson.exm;
-
-  if (exm === undefined) {
-    return {
-      projectRoot: resolvedProjectRoot,
-      installDir: options.installDir ?? 'extensions',
-      dependencies: {},
-    };
-  }
-
-  if (!isJsonObject(exm)) {
-    throw new Error('package.json exm field must be an object');
-  }
-
-  const dependencies = readDependencies(exm.dependencies);
-  const installDir = options.installDir ?? readInstallDir(exm.installDir);
+  const packageExm = readExmObject(packageJson.exm, 'package.json exm field');
+  const localExm = await readLocalExmObject(resolvedProjectRoot);
+  const packageDependencies = readDependencies(packageExm?.dependencies);
+  const localDependencies = readDependencies(localExm?.dependencies, `${EXM_LOCAL_FILE} dependencies`);
+  const dependencies = {
+    ...packageDependencies,
+    ...localDependencies,
+  };
+  const installDir = options.installDir ?? readInstallDir(localExm?.installDir ?? packageExm?.installDir);
+  const usesLocalLock = hasLocalDependencyEffect(packageDependencies, localDependencies);
 
   return {
     projectRoot: resolvedProjectRoot,
     installDir,
     dependencies,
+    usesLocalLock,
   };
 }
 
-export function readDependencies(value: unknown): Readonly<Record<string, string>> {
+export function readDependencies(
+  value: unknown,
+  label = 'package.json exm.dependencies',
+): Readonly<Record<string, string>> {
   if (value === undefined) {
     return {};
   }
 
   if (!isJsonObject(value)) {
-    throw new Error('package.json exm.dependencies must be an object');
+    throw new Error(`${label} must be an object`);
   }
 
   const dependencies: Record<string, string> = {};
@@ -97,4 +101,47 @@ function readInstallDir(value: unknown): string {
   }
 
   return value;
+}
+
+function readExmObject(value: unknown, label: string): Record<string, unknown> | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!isJsonObject(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+
+  return value;
+}
+
+async function readLocalExmObject(projectRoot: string): Promise<Record<string, unknown> | undefined> {
+  const localPath = path.join(projectRoot, EXM_LOCAL_FILE);
+
+  if (!await pathExists(localPath)) {
+    return undefined;
+  }
+
+  let parsed: unknown;
+
+  try {
+    parsed = parse(await readFile(localPath, 'utf8')) ?? {};
+  } catch (error) {
+    throw new Error(`Failed to read ${EXM_LOCAL_FILE}`, { cause: error });
+  }
+
+  return readExmObject(parsed, EXM_LOCAL_FILE);
+}
+
+function hasLocalDependencyEffect(
+  packageDependencies: Readonly<Record<string, string>>,
+  localDependencies: Readonly<Record<string, string>>,
+): boolean {
+  for (const [id, localSpec] of Object.entries(localDependencies)) {
+    if (packageDependencies[id] !== localSpec) {
+      return true;
+    }
+  }
+
+  return false;
 }

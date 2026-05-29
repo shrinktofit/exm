@@ -1,5 +1,6 @@
 import { GitExtensionSource } from './git-source.js';
 import { LinkExtensionSource } from './link-source.js';
+import { withSupportedDependencySpecifiers } from './specifier-help.js';
 import type { ExtensionSource } from './source.js';
 
 export class ExtensionSourceRegistry {
@@ -9,7 +10,9 @@ export class ExtensionSourceRegistry {
     const source = this.sources.find((candidate) => candidate.canResolve(spec));
 
     if (source === undefined) {
-      throw new Error(`Unsupported exm dependency source: ${spec}`);
+      throw new Error(withSupportedDependencySpecifiers(
+        `Unsupported exm dependency source: ${spec}`,
+      ));
     }
 
     return source;

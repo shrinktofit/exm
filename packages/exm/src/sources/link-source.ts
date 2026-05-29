@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { assertDirectory, createDirectoryLink } from '../fs/path.js';
+import { assertDirectory, createDirectoryLink, isSameRealPath } from '../fs/path.js';
 import type { ExtensionRequest, ExtensionSource, MaterializedExtension, ResolvedExtension, SourceContext } from './source.js';
 
 export class LinkExtensionSource implements ExtensionSource {
@@ -25,6 +25,20 @@ export class LinkExtensionSource implements ExtensionSource {
       sourceType: this.protocol,
       reference: sourcePath,
       sourcePath,
+    };
+  }
+
+  public async adoptExisting(resolved: ResolvedExtension, context: SourceContext): Promise<MaterializedExtension | undefined> {
+    const targetPath = path.join(context.installRoot, resolved.id);
+
+    if (!await isSameRealPath(resolved.sourcePath, targetPath)) {
+      return undefined;
+    }
+
+    return {
+      id: resolved.id,
+      path: targetPath,
+      mode: 'link',
     };
   }
 

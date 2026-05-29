@@ -164,6 +164,9 @@ importers:
       vite:
         specifier: 'catalog:'
         version: 7.3.2(@types/node@22.10.7)(jiti@2.6.1)(yaml@2.8.0)
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.6(@types/node@22.10.7)(@vitest/browser-playwright@4.1.6)(jsdom@24.1.3)(vite@7.3.2(@types/node@22.10.7)(jiti@2.6.1)(yaml@2.8.0))
 
   packages/cc-test:
     dependencies:
@@ -201,6 +204,9 @@ importers:
 
   packages/exm:
     dependencies:
+      yaml:
+        specifier: ^2.8.0
+        version: 2.8.0
       yargs:
         specifier: ^18.0.0
         version: 18.0.0

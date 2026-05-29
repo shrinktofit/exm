@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import yargs from 'yargs';
 import type { ArgumentsCamelCase, Argv } from 'yargs';
 import { readJsonObject } from './config/package-json.js';
-import { installProjectExtensions } from './installer/extension-installer.js';
+import { installProjectExtensions, updateProjectExtensions } from './installer/extension-installer.js';
 
 export interface InstallCommandOptions {
   readonly project?: string;
@@ -24,6 +24,19 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
       async (args): Promise<void> => {
         try {
           await runInstallCommand(args);
+        } catch (error) {
+          console.error(formatError(error));
+          exitCode = 1;
+        }
+      },
+    )
+    .command(
+      ['update', 'up'],
+      'Update git extensions from package.json exm.dependencies',
+      configureInstallCommand,
+      async (args): Promise<void> => {
+        try {
+          await runUpdateCommand(args);
         } catch (error) {
           console.error(formatError(error));
           exitCode = 1;
@@ -75,10 +88,28 @@ async function runInstallCommand(args: ArgumentsCamelCase<InstallCommandOptions>
     logger: console,
   });
 
-  if (result.installed.length === 0) {
-    console.log('No exm dependencies found.');
+  const changedCount = result.installed.length + result.adopted.length;
+
+  if (changedCount === 0) {
+    console.log('No exm dependencies changed.');
   } else {
-    console.log(`Installed ${result.installed.length} extension(s).`);
+    console.log(`Installed ${changedCount} extension(s).`);
+  }
+}
+
+async function runUpdateCommand(args: ArgumentsCamelCase<InstallCommandOptions>): Promise<void> {
+  const result = await updateProjectExtensions({
+    projectRoot: args.project,
+    installDir: args.installDir,
+    logger: console,
+  });
+
+  const changedCount = result.updated.length + result.adopted.length;
+
+  if (changedCount === 0) {
+    console.log('No git extensions changed.');
+  } else {
+    console.log(`Updated ${changedCount} git extension(s).`);
   }
 }
 

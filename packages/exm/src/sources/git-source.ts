@@ -3,12 +3,13 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { assertDirectory, assertPathInside, createDirectoryLink, pathExists } from '../fs/path.js';
+import { assertDirectory, assertPathInside, createDirectoryLink, isSameRealPath, pathExists } from '../fs/path.js';
+import { withSupportedDependencySpecifiers } from './specifier-help.js';
 import type { ExtensionRequest, ExtensionSource, MaterializedExtension, ResolvedExtension, SourceContext } from './source.js';
 
 export interface GitSpecifier {
   readonly url: string;
-  readonly commit: string;
+  readonly ref?: string;
   readonly subpath?: string;
 }
 
@@ -16,7 +17,7 @@ export type RunCommand = (
   file: string,
   args: readonly string[],
   options?: RunCommandOptions
-) => Promise<void>;
+) => Promise<string | void>;
 
 export interface RunCommandOptions {
   readonly cwd?: string;
@@ -51,9 +52,53 @@ export class GitExtensionSource implements ExtensionSource {
       id: request.id,
       spec: request.spec,
       sourceType: this.protocol,
-      reference: git.subpath === undefined ? git.commit : `${git.commit}:${git.subpath}`,
+      reference: formatGitReference(git),
       sourcePath,
       git,
+    };
+  }
+
+  public async adoptExisting(resolved: ResolvedExtension, context: SourceContext): Promise<MaterializedExtension | undefined> {
+    const targetPath = path.join(context.installRoot, resolved.id);
+    const git = resolved.git;
+
+    if (git === undefined) {
+      throw new Error(`Resolved extension "${resolved.id}" is missing git metadata`);
+    }
+
+    if (git.subpath === undefined) {
+      if (!await pathExists(path.join(targetPath, '.git'))) {
+        return undefined;
+      }
+
+      const commit = await ensureGitCheckout(git, targetPath, this.commandRunner);
+
+      return {
+        id: resolved.id,
+        path: targetPath,
+        mode: 'clone',
+        git: {
+          commit,
+        },
+      };
+    }
+
+    const checkoutPath = path.join(context.cacheRoot, 'git', createGitCacheKey(git));
+    const sourcePath = resolveGitSourcePath(checkoutPath, git);
+    const commit = await ensureGitCheckout(git, checkoutPath, this.commandRunner);
+    await assertDirectory(sourcePath, `git source for "${resolved.id}"`);
+
+    if (!await isSameRealPath(sourcePath, targetPath)) {
+      return undefined;
+    }
+
+    return {
+      id: resolved.id,
+      path: targetPath,
+      mode: 'link',
+      git: {
+        commit,
+      },
     };
   }
 
@@ -66,18 +111,21 @@ export class GitExtensionSource implements ExtensionSource {
     }
 
     if (git.subpath === undefined) {
-      await ensureGitCheckout(git, targetPath, this.commandRunner);
+      const commit = await ensureGitCheckout(git, targetPath, this.commandRunner);
 
       return {
         id: resolved.id,
         path: targetPath,
         mode: 'clone',
+        git: {
+          commit,
+        },
       };
     }
 
     const checkoutPath = path.join(context.cacheRoot, 'git', createGitCacheKey(git));
     const sourcePath = resolveGitSourcePath(checkoutPath, git);
-    await ensureGitCheckout(git, checkoutPath, this.commandRunner);
+    const commit = await ensureGitCheckout(git, checkoutPath, this.commandRunner);
     await assertDirectory(sourcePath, `git source for "${resolved.id}"`);
     await createDirectoryLink(sourcePath, targetPath);
 
@@ -85,6 +133,9 @@ export class GitExtensionSource implements ExtensionSource {
       id: resolved.id,
       path: targetPath,
       mode: 'link',
+      git: {
+        commit,
+      },
     };
   }
 }
@@ -92,18 +143,15 @@ export class GitExtensionSource implements ExtensionSource {
 export function parseGitSpecifier(spec: string): GitSpecifier {
   const normalized = stripGitPlusPrefix(spec);
   const fragmentIndex = normalized.lastIndexOf('#');
-
-  if (fragmentIndex < 0) {
-    throw new Error(`Git source "${spec}" must include a commit fragment, for example <url>#<commit>`);
-  }
-
-  const url = normalized.slice(0, fragmentIndex);
-  const fragment = normalized.slice(fragmentIndex + 1);
-  const parsedFragment = parseGitFragment(spec, fragment);
+  const url = fragmentIndex < 0 ? normalized : normalized.slice(0, fragmentIndex);
 
   if (url.length === 0) {
-    throw new Error(`Git source "${spec}" must include a repository URL`);
+    throw new Error(withSupportedDependencySpecifiers(
+      `Git source "${spec}" must include a repository URL`,
+    ));
   }
+
+  const parsedFragment = fragmentIndex < 0 ? {} : parseGitFragment(spec, normalized.slice(fragmentIndex + 1));
 
   return {
     url,
@@ -115,7 +163,7 @@ export function createGitCacheKey(specifier: GitSpecifier): string {
   return createHash('sha256')
     .update(specifier.url)
     .update('\0')
-    .update(specifier.commit)
+    .update(specifier.ref ?? '')
     .digest('hex')
     .slice(0, 16);
 }
@@ -124,57 +172,122 @@ async function ensureGitCheckout(
   specifier: GitSpecifier,
   checkoutPath: string,
   runCommand: RunCommand,
-): Promise<void> {
+): Promise<string> {
   const exists = await pathExists(checkoutPath);
 
   if (!exists) {
     await mkdir(path.dirname(checkoutPath), { recursive: true });
-    await runCommand('git', ['clone', '--no-checkout', specifier.url, checkoutPath]);
+    await runCommand('git', createGitCloneArgs(specifier, checkoutPath));
   }
 
-  await runCommand('git', ['fetch', '--depth=1', 'origin', specifier.commit], { cwd: checkoutPath });
-  await runCommand('git', ['checkout', '--force', specifier.commit], { cwd: checkoutPath });
+  if (specifier.ref === undefined) {
+    if (exists) {
+      await runCommand('git', ['pull', '--ff-only'], { cwd: checkoutPath });
+    }
+
+    return await readGitHeadCommit(checkoutPath, runCommand);
+  }
+
+  await runCommand('git', ['fetch', '--depth=1', 'origin', specifier.ref], { cwd: checkoutPath });
+  await runCommand('git', ['checkout', '--force', 'FETCH_HEAD'], { cwd: checkoutPath });
+
+  return await readGitHeadCommit(checkoutPath, runCommand);
 }
 
 function stripGitPlusPrefix(spec: string): string {
   return spec.startsWith('git+') ? spec.slice('git+'.length) : spec;
 }
 
-function parseGitFragment(spec: string, fragment: string): Pick<GitSpecifier, 'commit' | 'subpath'> {
-  const match = /^(?<commit>[0-9a-f]{7,40})(?::(?<subpath>.+))?$/i.exec(fragment);
-
-  if (match?.groups === undefined) {
-    throw new Error(`Git source "${spec}" must pin a 7-40 character commit hash`);
+function parseGitFragment(spec: string, fragment: string): Pick<GitSpecifier, 'ref' | 'subpath'> {
+  if (fragment.length === 0) {
+    return {};
   }
 
-  const subpath = match.groups.subpath;
+  if (fragment.startsWith(':')) {
+    return {
+      subpath: normalizeGitSubpath(spec, fragment.slice(1)),
+    };
+  }
+
+  const subpathSeparatorIndex = fragment.indexOf(':');
+  const ref = subpathSeparatorIndex < 0 ? fragment : fragment.slice(0, subpathSeparatorIndex);
+  const subpath = subpathSeparatorIndex < 0 ? undefined : fragment.slice(subpathSeparatorIndex + 1);
+  validateGitRef(spec, ref);
 
   if (subpath === undefined) {
     return {
-      commit: match.groups.commit,
+      ref,
     };
   }
 
   return {
-    commit: match.groups.commit,
+    ref,
     subpath: normalizeGitSubpath(spec, subpath),
   };
+}
+
+function validateGitRef(spec: string, ref: string): void {
+  if (
+    ref.length === 0
+    || ref.startsWith('-')
+    || ref.startsWith('/')
+    || ref.endsWith('/')
+    || ref.endsWith('.')
+    || ref.endsWith('.lock')
+    || ref.includes('..')
+    || ref.includes('//')
+    || ref.includes('@{')
+    || ref === '@'
+    || hasInvalidRefCharacter(ref)
+  ) {
+    throw new Error(withSupportedDependencySpecifiers(
+      `Git source "${spec}" ref must be a branch, tag, or commit-ish`,
+    ));
+  }
+}
+
+function hasInvalidRefCharacter(ref: string): boolean {
+  for (const character of ref) {
+    if (character.charCodeAt(0) <= 32 || '~^:?*[\\'.includes(character)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function normalizeGitSubpath(spec: string, subpath: string): string {
   const normalized = subpath.replaceAll('\\', '/');
 
   if (path.posix.isAbsolute(normalized) || path.win32.isAbsolute(normalized)) {
-    throw new Error(`Git source "${spec}" subpath must be relative`);
+    throw new Error(withSupportedDependencySpecifiers(
+      `Git source "${spec}" subpath must be relative`,
+    ));
   }
 
   const segments = normalized.split('/');
 
   if (segments.some((segment) => segment.length === 0 || segment === '.' || segment === '..')) {
-    throw new Error(`Git source "${spec}" subpath must not contain empty, "." or ".." segments`);
+    throw new Error(withSupportedDependencySpecifiers(
+      `Git source "${spec}" subpath must not contain empty, "." or ".." segments`,
+    ));
   }
 
   return segments.join('/');
+}
+
+function createGitCloneArgs(specifier: GitSpecifier, checkoutPath: string): readonly string[] {
+  if (specifier.ref === undefined) {
+    return ['clone', specifier.url, checkoutPath];
+  }
+
+  return ['clone', '--no-checkout', specifier.url, checkoutPath];
+}
+
+function formatGitReference(specifier: GitSpecifier): string {
+  const reference = specifier.ref ?? 'HEAD';
+
+  return specifier.subpath === undefined ? reference : `${reference}:${specifier.subpath}`;
 }
 
 function resolveGitSourcePath(checkoutPath: string, specifier: GitSpecifier): string {
@@ -192,8 +305,8 @@ async function runCommand(
   file: string,
   args: readonly string[],
   options: RunCommandOptions = {},
-): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
+): Promise<string> {
+  return await new Promise<string>((resolve, reject) => {
     const child = spawn(file, args, {
       cwd: options.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -206,7 +319,7 @@ async function runCommand(
     child.on('error', reject);
     child.on('close', (code): void => {
       if (code === 0) {
-        resolve();
+        resolve(Buffer.concat(stdout).toString('utf8'));
         return;
       }
 
@@ -214,4 +327,15 @@ async function runCommand(
       reject(new Error(`Command failed: ${file} ${args.join(' ')}\n${output}`));
     });
   });
+}
+
+async function readGitHeadCommit(checkoutPath: string, runCommand: RunCommand): Promise<string> {
+  const output = await runCommand('git', ['rev-parse', 'HEAD'], { cwd: checkoutPath });
+  const commit = String(output ?? '').trim();
+
+  if (!/^[0-9a-f]{40}$/i.test(commit)) {
+    throw new Error(`Git checkout did not resolve to a full commit hash: ${checkoutPath}`);
+  }
+
+  return commit;
 }

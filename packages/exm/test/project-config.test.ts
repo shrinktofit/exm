@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadProjectConfig, readDependencies } from '../src/index.js';
+import { EXM_LOCAL_FILE, loadProjectConfig, readDependencies } from '../src/index.js';
 
 const tempRoots: string[] = [];
 
@@ -29,6 +29,7 @@ describe('loadProjectConfig', () => {
     expect(config.dependencies).toEqual({
       sample: 'link:../sample',
     });
+    expect(config.usesLocalLock).toBe(false);
   });
 
   it('should default to an empty dependency map', async () => {
@@ -37,6 +38,58 @@ describe('loadProjectConfig', () => {
 
     expect(config.installDir).toBe('extensions');
     expect(config.dependencies).toEqual({});
+    expect(config.usesLocalLock).toBe(false);
+  });
+
+  it('should merge exm.local.yaml over package.json exm config', async () => {
+    const projectRoot = await createTempProject({
+      exm: {
+        installDir: 'shared-extensions',
+        dependencies: {
+          shared: 'https://github.com/feb/shared.git#main',
+          overridden: 'https://github.com/feb/original.git#main',
+        },
+      },
+    });
+    await writeFile(path.join(projectRoot, EXM_LOCAL_FILE), [
+      'installDir: local-extensions',
+      'dependencies:',
+      '  overridden: link:../local-overridden',
+      '  localOnly: link:../local-only',
+      '',
+    ].join('\n'));
+
+    const config = await loadProjectConfig(projectRoot);
+
+    expect(config.installDir).toBe('local-extensions');
+    expect(config.dependencies).toEqual({
+      shared: 'https://github.com/feb/shared.git#main',
+      overridden: 'link:../local-overridden',
+      localOnly: 'link:../local-only',
+    });
+    expect(config.usesLocalLock).toBe(true);
+  });
+
+  it('should keep the shared lock when exm.local.yaml does not change dependencies', async () => {
+    const projectRoot = await createTempProject({
+      exm: {
+        dependencies: {
+          sample: 'link:../sample',
+        },
+      },
+    });
+    await writeFile(path.join(projectRoot, EXM_LOCAL_FILE), [
+      'dependencies:',
+      '  sample: link:../sample',
+      '',
+    ].join('\n'));
+
+    const config = await loadProjectConfig(projectRoot);
+
+    expect(config.dependencies).toEqual({
+      sample: 'link:../sample',
+    });
+    expect(config.usesLocalLock).toBe(false);
   });
 });
 
