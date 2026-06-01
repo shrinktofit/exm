@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 
 export type JsonValue = null | boolean | number | string | JsonObject | JsonArray;
 
@@ -30,6 +30,10 @@ export async function readJsonObject(path: string): Promise<JsonObject> {
   }
 
   return parsed;
+}
+
+export async function writeJsonObject(path: string, value: JsonObject): Promise<void> {
+  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 }
 
 export function isJsonObject(value: unknown): value is JsonObject {

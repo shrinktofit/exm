@@ -1,3 +1,5 @@
+export { initProjectConfig } from './config/init-project.js';
+export type { InitProjectConfigOptions, InitProjectConfigResult, InitProjectConfigStatus } from './config/init-project.js';
 export { EXM_LOCAL_FILE, loadProjectConfig, readDependencies, validateExtensionId } from './config/project-config.js';
 export type { ExmProjectConfig, LoadProjectConfigOptions } from './config/project-config.js';
 export { installProjectExtensions, updateProjectExtensions } from './installer/extension-installer.js';

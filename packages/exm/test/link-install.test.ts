@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readlink, realpath, rm, symlink as fsSymlink, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readlink, realpath, rm, symlink as fsSymlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { parse } from 'yaml';
@@ -14,6 +14,26 @@ afterEach(async () => {
 });
 
 describe('installProjectExtensions link source', () => {
+  it('should not create the install directory when there are no dependencies', async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), 'exm-empty-install-'));
+    tempRoots.push(workspace);
+    const projectRoot = path.join(workspace, 'project');
+    await mkdir(projectRoot, { recursive: true });
+    await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
+      exm: {
+        dependencies: {},
+      },
+    }));
+
+    const result = await installProjectExtensions({ projectRoot });
+
+    expect(result.installed).toEqual([]);
+    expect(result.adopted).toEqual([]);
+    expect(result.skipped).toEqual([]);
+    await expect(access(path.join(projectRoot, 'extensions'))).rejects.toThrow();
+    await expect(access(path.join(projectRoot, 'exm-lock.yaml'))).rejects.toThrow();
+  });
+
   it('should install a link dependency into the project extension directory', async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-link-'));
     tempRoots.push(workspace);

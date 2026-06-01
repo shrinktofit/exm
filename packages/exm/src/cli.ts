@@ -3,12 +3,19 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import yargs from 'yargs';
 import type { ArgumentsCamelCase, Argv } from 'yargs';
+import { initProjectConfig } from './config/init-project.js';
 import { readJsonObject } from './config/package-json.js';
+import { EXM_LOCAL_FILE } from './config/project-config.js';
 import { installProjectExtensions, updateProjectExtensions } from './installer/extension-installer.js';
+import { EXM_LOCAL_LOCK_FILE } from './lock/exm-lock.js';
 
-export interface InstallCommandOptions {
+export interface ProjectCommandOptions {
   readonly project?: string;
   readonly installDir?: string;
+}
+
+export interface InitCommandOptions extends ProjectCommandOptions {
+  readonly local?: boolean;
 }
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
@@ -18,9 +25,22 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     .scriptName('exm')
     .usage('$0 <command> [options]')
     .command(
+      'init',
+      'Initialize exm config',
+      configureInitCommand,
+      async (args): Promise<void> => {
+        try {
+          await runInitCommand(args);
+        } catch (error) {
+          console.error(formatError(error));
+          exitCode = 1;
+        }
+      },
+    )
+    .command(
       ['i', 'install'],
       'Install Cocos Creator extensions from package.json exm.dependencies',
-      configureInstallCommand,
+      configureProjectCommand,
       async (args): Promise<void> => {
         try {
           await runInstallCommand(args);
@@ -33,7 +53,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     .command(
       ['update', 'up'],
       'Update git extensions from package.json exm.dependencies',
-      configureInstallCommand,
+      configureProjectCommand,
       async (args): Promise<void> => {
         try {
           await runUpdateCommand(args);
@@ -68,7 +88,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   return exitCode;
 }
 
-function configureInstallCommand(argv: Argv): Argv<InstallCommandOptions> {
+function configureProjectCommand(argv: Argv): Argv<ProjectCommandOptions> {
   return argv
     .option('project', {
       alias: 'C',
@@ -81,7 +101,37 @@ function configureInstallCommand(argv: Argv): Argv<InstallCommandOptions> {
     });
 }
 
-async function runInstallCommand(args: ArgumentsCamelCase<InstallCommandOptions>): Promise<void> {
+function configureInitCommand(argv: Argv): Argv<InitCommandOptions> {
+  return configureProjectCommand(argv)
+    .option('local', {
+      describe: `Initialize ${EXM_LOCAL_FILE} instead of package.json`,
+      type: 'boolean',
+      default: false,
+    });
+}
+
+async function runInitCommand(args: ArgumentsCamelCase<InitCommandOptions>): Promise<void> {
+  const result = await initProjectConfig({
+    projectRoot: args.project,
+    installDir: args.installDir,
+    local: args.local,
+  });
+  const target = result.local ? EXM_LOCAL_FILE : 'package.json';
+
+  if (result.status === 'initialized') {
+    console.log(`Initialized exm config in ${target}.`);
+  } else if (result.status === 'updated') {
+    console.log(`Updated exm config in ${target}.`);
+  } else {
+    console.log(`${target} already has exm config.`);
+  }
+
+  if (result.local && result.status !== 'unchanged') {
+    console.log(`Tip: add ${EXM_LOCAL_FILE} and ${EXM_LOCAL_LOCK_FILE} to .gitignore if this project tracks local files.`);
+  }
+}
+
+async function runInstallCommand(args: ArgumentsCamelCase<ProjectCommandOptions>): Promise<void> {
   const result = await installProjectExtensions({
     projectRoot: args.project,
     installDir: args.installDir,
@@ -97,7 +147,7 @@ async function runInstallCommand(args: ArgumentsCamelCase<InstallCommandOptions>
   }
 }
 
-async function runUpdateCommand(args: ArgumentsCamelCase<InstallCommandOptions>): Promise<void> {
+async function runUpdateCommand(args: ArgumentsCamelCase<ProjectCommandOptions>): Promise<void> {
   const result = await updateProjectExtensions({
     projectRoot: args.project,
     installDir: args.installDir,

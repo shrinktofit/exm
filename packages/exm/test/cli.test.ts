@@ -54,6 +54,15 @@ describe('main', () => {
     expect(output).toContain('--install-dir');
   });
 
+  it('should print init command help', async () => {
+    await expect(main(['init', '--help'])).resolves.toBe(0);
+
+    const output = logMessages.join('\n');
+    expect(output).toContain('--project');
+    expect(output).toContain('--install-dir');
+    expect(output).toContain('--local');
+  });
+
   it('should reject unknown commands', async () => {
     await expect(main(['unknown'])).resolves.toBe(1);
 

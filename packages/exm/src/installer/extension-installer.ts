@@ -43,6 +43,20 @@ export async function installProjectExtensions(
     installDir: options.installDir,
   });
   const installRoot = path.resolve(config.projectRoot, config.installDir);
+  const dependencyCount = Object.keys(config.dependencies).length;
+
+  assertPathInside(config.projectRoot, installRoot, 'exm install root');
+
+  if (dependencyCount === 0) {
+    return {
+      projectRoot: config.projectRoot,
+      installRoot,
+      installed: [],
+      adopted: [],
+      skipped: [],
+    };
+  }
+
   const cacheRoot = path.join(config.projectRoot, '.exm', 'cache');
   const registry = options.registry ?? createDefaultSourceRegistry();
   const lockFileName = getProjectLockFileName(config.usesLocalLock);
@@ -55,9 +69,7 @@ export async function installProjectExtensions(
   const installed: MaterializedExtension[] = [];
   const adopted: MaterializedExtension[] = [];
   const skipped: string[] = [];
-  const dependencyCount = Object.keys(config.dependencies).length;
 
-  assertPathInside(config.projectRoot, installRoot, 'exm install root');
   await mkdir(installRoot, { recursive: true });
 
   for (const [id, spec] of Object.entries(config.dependencies)) {
@@ -104,9 +116,7 @@ export async function installProjectExtensions(
     options.logger?.info(`installed ${id} from ${resolved.sourceType} -> ${path.relative(config.projectRoot, materialized.path)}`);
   }
 
-  if (dependencyCount > 0) {
-    await saveExmLock(config.projectRoot, lock, lockFileName);
-  }
+  await saveExmLock(config.projectRoot, lock, lockFileName);
 
   return {
     projectRoot: config.projectRoot,
@@ -125,6 +135,20 @@ export async function updateProjectExtensions(
     installDir: options.installDir,
   });
   const installRoot = path.resolve(config.projectRoot, config.installDir);
+  const dependencyCount = Object.keys(config.dependencies).length;
+
+  assertPathInside(config.projectRoot, installRoot, 'exm install root');
+
+  if (dependencyCount === 0) {
+    return {
+      projectRoot: config.projectRoot,
+      installRoot,
+      updated: [],
+      adopted: [],
+      skipped: [],
+    };
+  }
+
   const cacheRoot = path.join(config.projectRoot, '.exm', 'cache');
   const registry = options.registry ?? createDefaultSourceRegistry();
   const lockFileName = getProjectLockFileName(config.usesLocalLock);
@@ -138,7 +162,6 @@ export async function updateProjectExtensions(
   const adopted: MaterializedExtension[] = [];
   const skipped: string[] = [];
 
-  assertPathInside(config.projectRoot, installRoot, 'exm install root');
   await mkdir(installRoot, { recursive: true });
 
   for (const [id, spec] of Object.entries(config.dependencies)) {

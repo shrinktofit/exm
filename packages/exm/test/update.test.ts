@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -21,6 +21,26 @@ afterEach(async () => {
 });
 
 describe('updateProjectExtensions', () => {
+  it('should not create the install directory when there are no dependencies', async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), 'exm-empty-update-'));
+    tempRoots.push(workspace);
+    const projectRoot = path.join(workspace, 'project');
+    await mkdir(projectRoot, { recursive: true });
+    await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
+      exm: {
+        dependencies: {},
+      },
+    }));
+
+    const result = await updateProjectExtensions({ projectRoot });
+
+    expect(result.updated).toEqual([]);
+    expect(result.adopted).toEqual([]);
+    expect(result.skipped).toEqual([]);
+    await expect(access(path.join(projectRoot, 'extensions'))).rejects.toThrow();
+    await expect(access(path.join(projectRoot, 'exm-lock.yaml'))).rejects.toThrow();
+  });
+
   it('should adopt and pull existing unmanaged git root extensions', async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-update-adopt-'));
     tempRoots.push(workspace);
