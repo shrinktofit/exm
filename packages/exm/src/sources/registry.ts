@@ -1,5 +1,7 @@
+import { ExmRegistrySource } from './exm-registry-source.js';
 import { GitExtensionSource } from './git-source.js';
 import { LinkExtensionSource } from './link-source.js';
+import { NpmExtensionSource } from './npm-source.js';
 import { withSupportedDependencySpecifiers } from './specifier-help.js';
 import type { ExtensionSource } from './source.js';
 
@@ -22,6 +24,8 @@ export class ExtensionSourceRegistry {
 export function createDefaultSourceRegistry(): ExtensionSourceRegistry {
   return new ExtensionSourceRegistry([
     new LinkExtensionSource(),
+    new ExmRegistrySource(),
+    new NpmExtensionSource(),
     new GitExtensionSource(),
   ]);
 }

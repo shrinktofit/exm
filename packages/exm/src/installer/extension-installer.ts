@@ -1,10 +1,11 @@
 import { mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
-import { loadProjectConfig } from '../config/project-config.js';
+import { EXM_INSTALL_DIR, loadProjectConfig } from '../config/project-config.js';
 import { assertPathInside, pathExists } from '../fs/path.js';
 import { EXM_LOCAL_LOCK_FILE, createExmLockEntry, loadExmLock, saveExmLock } from '../lock/exm-lock.js';
 import { createDefaultSourceRegistry, ExtensionSourceRegistry } from '../sources/registry.js';
+import type { ExmLockExtension } from '../lock/exm-lock.js';
 import type { MaterializedExtension, ResolvedExtension, SourceContext } from '../sources/source.js';
 
 export interface ExmLogger {
@@ -14,7 +15,6 @@ export interface ExmLogger {
 export interface InstallProjectExtensionsOptions {
   readonly projectRoot?: string;
   readonly cwd?: string;
-  readonly installDir?: string;
   readonly registry?: ExtensionSourceRegistry;
   readonly logger?: ExmLogger;
 }
@@ -39,10 +39,8 @@ export async function installProjectExtensions(
   options: InstallProjectExtensionsOptions = {},
 ): Promise<InstallProjectExtensionsResult> {
   const projectRoot = path.resolve(options.projectRoot ?? options.cwd ?? process.cwd());
-  const config = await loadProjectConfig(projectRoot, {
-    installDir: options.installDir,
-  });
-  const installRoot = path.resolve(config.projectRoot, config.installDir);
+  const config = await loadProjectConfig(projectRoot);
+  const installRoot = path.resolve(config.projectRoot, EXM_INSTALL_DIR);
   const dependencyCount = Object.keys(config.dependencies).length;
 
   assertPathInside(config.projectRoot, installRoot, 'exm install root');
@@ -65,6 +63,7 @@ export async function installProjectExtensions(
     projectRoot: config.projectRoot,
     installRoot,
     cacheRoot,
+    ...optionalStringField('exmRegistry', config.registry),
   };
   const installed: MaterializedExtension[] = [];
   const adopted: MaterializedExtension[] = [];
@@ -76,13 +75,12 @@ export async function installProjectExtensions(
     const targetPath = path.join(installRoot, id);
     assertPathInside(installRoot, targetPath, `extension target for "${id}"`);
 
+    const lockEntry = lock.extensions[id];
     const source = registry.getSource(spec);
-    const resolved = await source.resolve({ id, spec }, sourceContext);
+    const resolved = await source.resolve({ id, spec, previous: lockEntry }, sourceContext);
     const targetExists = await pathExists(targetPath);
 
     if (targetExists) {
-      const lockEntry = lock.extensions[id];
-
       if (lockEntry === undefined) {
         const adoptedMaterialized = await adoptExistingUnmanagedTarget(source, resolved, sourceContext);
 
@@ -131,10 +129,8 @@ export async function updateProjectExtensions(
   options: InstallProjectExtensionsOptions = {},
 ): Promise<UpdateProjectExtensionsResult> {
   const projectRoot = path.resolve(options.projectRoot ?? options.cwd ?? process.cwd());
-  const config = await loadProjectConfig(projectRoot, {
-    installDir: options.installDir,
-  });
-  const installRoot = path.resolve(config.projectRoot, config.installDir);
+  const config = await loadProjectConfig(projectRoot);
+  const installRoot = path.resolve(config.projectRoot, EXM_INSTALL_DIR);
   const dependencyCount = Object.keys(config.dependencies).length;
 
   assertPathInside(config.projectRoot, installRoot, 'exm install root');
@@ -157,6 +153,8 @@ export async function updateProjectExtensions(
     projectRoot: config.projectRoot,
     installRoot,
     cacheRoot,
+    ...optionalStringField('exmRegistry', config.registry),
+    update: true,
   };
   const updated: MaterializedExtension[] = [];
   const adopted: MaterializedExtension[] = [];
@@ -165,17 +163,17 @@ export async function updateProjectExtensions(
   await mkdir(installRoot, { recursive: true });
 
   for (const [id, spec] of Object.entries(config.dependencies)) {
+    const lockEntry = lock.extensions[id];
     const source = registry.getSource(spec);
-    const resolved = await source.resolve({ id, spec }, sourceContext);
+    const resolved = await source.resolve({ id, spec, previous: lockEntry }, sourceContext);
 
-    if (resolved.sourceType !== 'git') {
+    if (resolved.sourceType === 'link') {
       skipped.push(id);
       continue;
     }
 
     const targetPath = path.join(installRoot, id);
     assertPathInside(installRoot, targetPath, `extension target for "${id}"`);
-    const lockEntry = lock.extensions[id];
     const targetExists = await pathExists(targetPath);
 
     if (targetExists) {
@@ -195,10 +193,22 @@ export async function updateProjectExtensions(
         updated.push(materialized);
         options.logger?.info(`updated ${id} from ${resolved.sourceType} -> ${path.relative(config.projectRoot, materialized.path)}`);
         continue;
-      } else {
-        if (shouldReplaceTargetForUpdate(lockEntry.spec, resolved)) {
-          await removeManagedTarget(installRoot, targetPath, id);
+      } else if (resolved.sourceType === 'npm' || resolved.sourceType === 'exm') {
+        const nextLockEntry = createExmLockEntry(resolved, {
+          id,
+          path: targetPath,
+          mode: 'copy',
+        });
+
+        if (!lockEntryChanged(lockEntry, nextLockEntry)) {
+          skipped.push(id);
+          options.logger?.info(`skipped ${id}; already up to date`);
+          continue;
         }
+
+        await removeManagedTarget(installRoot, targetPath, id);
+      } else if (shouldReplaceTargetForUpdate(lockEntry.spec, resolved)) {
+        await removeManagedTarget(installRoot, targetPath, id);
       }
     }
 
@@ -250,13 +260,26 @@ function shouldReplaceTargetForUpdate(lockedSpec: string | undefined, resolved: 
   return lockedSpec !== resolved.spec;
 }
 
-function lockEntryChanged(
-  previous: { readonly spec: string; readonly commit?: string } | undefined,
-  next: { readonly spec: string; readonly commit?: string },
-): boolean {
-  return previous?.spec !== next.spec || previous.commit !== next.commit;
+function lockEntryChanged(previous: ExmLockExtension | undefined, next: ExmLockExtension): boolean {
+  if (previous === undefined) {
+    return true;
+  }
+
+  return previous.source !== next.source
+    || previous.spec !== next.spec
+    || previous.registry !== next.registry
+    || previous.commit !== next.commit
+    || previous.packageName !== next.packageName
+    || previous.version !== next.version
+    || previous.resolved !== next.resolved
+    || previous.integrity !== next.integrity
+    || previous.size !== next.size;
 }
 
 function getProjectLockFileName(usesLocalLock: boolean): string | undefined {
   return usesLocalLock ? EXM_LOCAL_LOCK_FILE : undefined;
+}
+
+function optionalStringField<Key extends string>(key: Key, value: string | undefined): Partial<Record<Key, string>> {
+  return value === undefined ? {} : { [key]: value } as Record<Key, string>;
 }

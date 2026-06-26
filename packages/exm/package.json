@@ -13,20 +13,30 @@
     "exm": "./bin/exm.js"
   },
   "scripts": {
-    "prepublishOnly": "npm run build --clean && npm run build",
+    "prepublishOnly": "node --run build -- --clean && node --run build",
     "build": "tsc -b",
-    "test": "npm run test:compile && npm run t",
+    "test": "node --run test:compile && node --run t",
     "test:compile": "tsc -b test/tsconfig.json",
     "t": "vitest run"
   },
   "devDependencies": {
     "@feb/workflow": "workspace:*",
     "@types/node": "catalog:",
+    "@types/picomatch": "^4.0.3",
+    "@types/tar-fs": "^2.0.4",
     "@types/yargs": "^17.0.35",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
   "dependencies": {
+    "@npmcli/config": "^10.11.0",
+    "npm-package-arg": "^11.0.2",
+    "npm-registry-fetch": "^17.1.0",
+    "pacote": "^18.0.6",
+    "semver": "^7.7.2",
+    "tar": "^7.5.17",
+    "tar-fs": "^3.1.2",
+    "tinyglobby": "^0.2.16",
     "yaml": "^2.8.0",
     "yargs": "^18.0.0"
   }

@@ -13,8 +13,15 @@ export interface ExmLockFile {
 }
 
 export interface ExmLockExtension {
+  readonly source: string;
   readonly spec: string;
+  readonly registry?: string;
   readonly commit?: string;
+  readonly packageName?: string;
+  readonly version?: string;
+  readonly resolved?: string;
+  readonly integrity?: string;
+  readonly size?: number;
 }
 
 export async function loadExmLock(
@@ -54,15 +61,47 @@ export function createExmLockEntry(
   resolved: ResolvedExtension,
   materialized: MaterializedExtension,
 ): ExmLockExtension {
-  const commit = materialized.git?.commit;
+  if (resolved.exm !== undefined) {
+    return {
+      source: 'exm',
+      spec: resolved.spec,
+      registry: resolved.exm.registry,
+      packageName: resolved.exm.packageName,
+      version: resolved.exm.version,
+      resolved: resolved.exm.resolved,
+      integrity: resolved.exm.integrity,
+      size: resolved.exm.size,
+    };
+  }
 
-  if (resolved.git !== undefined && commit === undefined) {
-    throw new Error(`Git extension "${resolved.id}" did not resolve to a commit`);
+  if (resolved.npm !== undefined) {
+    return {
+      source: 'npm',
+      spec: resolved.spec,
+      packageName: resolved.npm.packageName,
+      version: resolved.npm.version,
+      resolved: resolved.npm.resolved,
+      ...optionalStringField('integrity', resolved.npm.integrity),
+    };
+  }
+
+  if (resolved.git !== undefined) {
+    const commit = materialized.git?.commit;
+
+    if (commit === undefined) {
+      throw new Error(`Git extension "${resolved.id}" did not resolve to a commit`);
+    }
+
+    return {
+      source: 'git',
+      spec: resolved.spec,
+      commit,
+    };
   }
 
   return {
+    source: resolved.sourceType,
     spec: resolved.spec,
-    commit,
   };
 }
 
@@ -108,21 +147,48 @@ function normalizeExmLockExtension(lockFileName: string, id: string, value: unkn
   }
 
   return {
+    source: readString(lockFileName, value.source, id, 'source'),
     spec: readString(lockFileName, value.spec, id, 'spec'),
-    commit: readOptionalCommit(lockFileName, value, id),
+    ...optionalStringField('registry', readOptionalString(lockFileName, value, id, 'registry')),
+    ...optionalStringField('commit', readOptionalString(lockFileName, value, id, 'commit')),
+    ...optionalStringField('packageName', readOptionalString(lockFileName, value, id, 'packageName')),
+    ...optionalStringField('version', readOptionalString(lockFileName, value, id, 'version')),
+    ...optionalStringField('resolved', readOptionalString(lockFileName, value, id, 'resolved')),
+    ...optionalStringField('integrity', readOptionalString(lockFileName, value, id, 'integrity')),
+    ...optionalNumberField('size', readOptionalNumber(lockFileName, value, id, 'size')),
   };
 }
 
-function readOptionalCommit(lockFileName: string, value: Record<string, unknown>, id: string): string | undefined {
-  if (value.commit !== undefined) {
-    return readString(lockFileName, value.commit, id, 'commit');
-  }
-
-  if (!isRecord(value.git) || value.git.commit === undefined) {
+function readOptionalString(
+  lockFileName: string,
+  value: Record<string, unknown>,
+  id: string,
+  field: string,
+): string | undefined {
+  if (value[field] === undefined) {
     return undefined;
   }
 
-  return readString(lockFileName, value.git.commit, id, 'git.commit');
+  return readString(lockFileName, value[field], id, field);
+}
+
+function readOptionalNumber(
+  lockFileName: string,
+  value: Record<string, unknown>,
+  id: string,
+  field: string,
+): number | undefined {
+  if (value[field] === undefined) {
+    return undefined;
+  }
+
+  const fieldValue = value[field];
+
+  if (typeof fieldValue !== 'number' || !Number.isInteger(fieldValue)) {
+    throw new Error(`${lockFileName} extension "${id}" ${field} must be an integer`);
+  }
+
+  return fieldValue;
 }
 
 function readString(lockFileName: string, value: unknown, id: string, field: string): string {
@@ -131,6 +197,14 @@ function readString(lockFileName: string, value: unknown, id: string, field: str
   }
 
   return value;
+}
+
+function optionalStringField<Key extends string>(key: Key, value: string | undefined): Partial<Record<Key, string>> {
+  return value === undefined ? {} : { [key]: value } as Record<Key, string>;
+}
+
+function optionalNumberField<Key extends string>(key: Key, value: number | undefined): Partial<Record<Key, number>> {
+  return value === undefined ? {} : { [key]: value } as Record<Key, number>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

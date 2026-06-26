@@ -8,14 +8,22 @@ import { readJsonObject } from './config/package-json.js';
 import { EXM_LOCAL_FILE } from './config/project-config.js';
 import { installProjectExtensions, updateProjectExtensions } from './installer/extension-installer.js';
 import { EXM_LOCAL_LOCK_FILE } from './lock/exm-lock.js';
+import { deployExtensionPackage, publishExtensionPackage } from './publisher/extension-publisher.js';
 
 export interface ProjectCommandOptions {
   readonly project?: string;
-  readonly installDir?: string;
 }
 
 export interface InitCommandOptions extends ProjectCommandOptions {
   readonly local?: boolean;
+}
+
+export interface DeployCommandOptions {
+  readonly package: string;
+}
+
+export interface PublishCommandOptions extends DeployCommandOptions {
+  readonly dryRun?: boolean;
 }
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
@@ -52,11 +60,37 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     )
     .command(
       ['update', 'up'],
-      'Update git extensions from package.json exm.dependencies',
+      'Update extensions from package.json exm.dependencies',
       configureProjectCommand,
       async (args): Promise<void> => {
         try {
           await runUpdateCommand(args);
+        } catch (error) {
+          console.error(formatError(error));
+          exitCode = 1;
+        }
+      },
+    )
+    .command(
+      'deploy <package>',
+      'Deploy a Cocos Creator extension package into .deploy',
+      configureDeployCommand,
+      async (args): Promise<void> => {
+        try {
+          await runDeployCommand(args);
+        } catch (error) {
+          console.error(formatError(error));
+          exitCode = 1;
+        }
+      },
+    )
+    .command(
+      'publish <package>',
+      'Publish a pnpm-deployed Cocos Creator extension package',
+      configurePublishCommand,
+      async (args): Promise<void> => {
+        try {
+          await runPublishCommand(args);
         } catch (error) {
           console.error(formatError(error));
           exitCode = 1;
@@ -88,15 +122,34 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   return exitCode;
 }
 
+function configureDeployCommand(argv: Argv): Argv<DeployCommandOptions> {
+  return argv
+    .positional('package', {
+      describe: 'Package name to deploy',
+      type: 'string',
+      demandOption: true,
+    });
+}
+
+function configurePublishCommand(argv: Argv): Argv<PublishCommandOptions> {
+  return argv
+    .positional('package', {
+      describe: 'Package name to deploy and publish',
+      type: 'string',
+      demandOption: true,
+    })
+    .option('dry-run', {
+      describe: 'Run deploy and registry validation without uploading to the exm registry',
+      type: 'boolean',
+      default: false,
+    });
+}
+
 function configureProjectCommand(argv: Argv): Argv<ProjectCommandOptions> {
   return argv
     .option('project', {
       alias: 'C',
       describe: 'Project root directory',
-      type: 'string',
-    })
-    .option('install-dir', {
-      describe: 'Extension install directory relative to the project root',
       type: 'string',
     });
 }
@@ -113,7 +166,6 @@ function configureInitCommand(argv: Argv): Argv<InitCommandOptions> {
 async function runInitCommand(args: ArgumentsCamelCase<InitCommandOptions>): Promise<void> {
   const result = await initProjectConfig({
     projectRoot: args.project,
-    installDir: args.installDir,
     local: args.local,
   });
   const target = result.local ? EXM_LOCAL_FILE : 'package.json';
@@ -134,7 +186,6 @@ async function runInitCommand(args: ArgumentsCamelCase<InitCommandOptions>): Pro
 async function runInstallCommand(args: ArgumentsCamelCase<ProjectCommandOptions>): Promise<void> {
   const result = await installProjectExtensions({
     projectRoot: args.project,
-    installDir: args.installDir,
     logger: console,
   });
 
@@ -150,16 +201,38 @@ async function runInstallCommand(args: ArgumentsCamelCase<ProjectCommandOptions>
 async function runUpdateCommand(args: ArgumentsCamelCase<ProjectCommandOptions>): Promise<void> {
   const result = await updateProjectExtensions({
     projectRoot: args.project,
-    installDir: args.installDir,
     logger: console,
   });
 
   const changedCount = result.updated.length + result.adopted.length;
 
   if (changedCount === 0) {
-    console.log('No git extensions changed.');
+    console.log('No exm dependencies changed.');
   } else {
-    console.log(`Updated ${changedCount} git extension(s).`);
+    console.log(`Updated ${changedCount} extension(s).`);
+  }
+}
+
+async function runDeployCommand(args: ArgumentsCamelCase<DeployCommandOptions>): Promise<void> {
+  const result = await deployExtensionPackage({
+    packageName: args.package,
+    logger: console,
+  });
+
+  console.log(`Deployed ${result.packageName}@${result.version} to ${result.deployDir}.`);
+}
+
+async function runPublishCommand(args: ArgumentsCamelCase<PublishCommandOptions>): Promise<void> {
+  const result = await publishExtensionPackage({
+    packageName: args.package,
+    dryRun: args.dryRun,
+    logger: console,
+  });
+
+  if (result.dryRun) {
+    console.log(`Dry-run published ${result.packageName}@${result.version} to ${result.artifactUrl}.`);
+  } else {
+    console.log(`Published ${result.packageName}@${result.version} to ${result.artifactUrl}.`);
   }
 }
 

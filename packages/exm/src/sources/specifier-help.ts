@@ -1,4 +1,6 @@
 const supportedDependencySpecifierExamples = [
+  'npm:@company/my-extension@1.2.3',
+  'npm:@company/my-extension@^1.2.0',
   'link:../my-extension',
   'git+https://github.com/org/repo.git',
   'git+https://github.com/org/repo.git#main',

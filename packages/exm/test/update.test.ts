@@ -160,6 +160,7 @@ describe('updateProjectExtensions', () => {
       lockFileVersion: 1,
       extensions: {
         sample: {
+          source: 'git',
           spec: 'https://github.com/feb/example.git',
           commit: oldCommit,
         },
@@ -212,6 +213,7 @@ describe('updateProjectExtensions', () => {
       lockFileVersion: 1,
       extensions: {
         sample: {
+          source: 'git',
           spec: 'https://github.com/feb/example.git',
           commit: oldCommit,
         },
@@ -270,6 +272,7 @@ describe('updateProjectExtensions', () => {
       lockFileVersion: 1,
       extensions: {
         sample: {
+          source: 'git',
           spec: 'https://github.com/feb/example.git',
           commit: resolvedCommit,
         },

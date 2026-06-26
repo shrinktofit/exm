@@ -5,38 +5,37 @@ import { pathExists } from '../fs/path.js';
 import { readJsonObject, isJsonObject } from './package-json.js';
 
 export const EXM_LOCAL_FILE = 'exm.local.yaml';
+export const EXM_INSTALL_DIR = 'extensions';
 
 export interface ExmProjectConfig {
   readonly projectRoot: string;
-  readonly installDir: string;
+  readonly registry?: string;
   readonly dependencies: Readonly<Record<string, string>>;
   readonly usesLocalLock: boolean;
 }
 
-export interface LoadProjectConfigOptions {
-  readonly installDir?: string;
-}
-
 export async function loadProjectConfig(
   projectRoot: string,
-  options: LoadProjectConfigOptions = {},
 ): Promise<ExmProjectConfig> {
   const resolvedProjectRoot = path.resolve(projectRoot);
   const packageJson = await readJsonObject(path.join(resolvedProjectRoot, 'package.json'));
   const packageExm = readExmObject(packageJson.exm, 'package.json exm field');
   const localExm = await readLocalExmObject(resolvedProjectRoot);
+  rejectInstallDir(packageExm?.installDir, 'package.json exm.installDir');
+  rejectInstallDir(localExm?.installDir, `${EXM_LOCAL_FILE} installDir`);
+  const registry = readRegistry(packageExm?.registry, 'package.json exm.registry');
+  rejectLocalRegistry(localExm?.registry);
   const packageDependencies = readDependencies(packageExm?.dependencies);
   const localDependencies = readDependencies(localExm?.dependencies, `${EXM_LOCAL_FILE} dependencies`);
   const dependencies = {
     ...packageDependencies,
     ...localDependencies,
   };
-  const installDir = options.installDir ?? readInstallDir(localExm?.installDir ?? packageExm?.installDir);
   const usesLocalLock = hasLocalDependencyEffect(packageDependencies, localDependencies);
 
   return {
     projectRoot: resolvedProjectRoot,
-    installDir,
+    ...optionalStringField('registry', registry),
     dependencies,
     usesLocalLock,
   };
@@ -87,22 +86,6 @@ export function validateExtensionId(id: string): void {
   }
 }
 
-function readInstallDir(value: unknown): string {
-  if (value === undefined) {
-    return 'extensions';
-  }
-
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error('package.json exm.installDir must be a non-empty string');
-  }
-
-  if (path.isAbsolute(value)) {
-    throw new Error('package.json exm.installDir must be relative to the project root');
-  }
-
-  return value;
-}
-
 function readExmObject(value: unknown, label: string): Record<string, unknown> | undefined {
   if (value === undefined) {
     return undefined;
@@ -133,6 +116,40 @@ async function readLocalExmObject(projectRoot: string): Promise<Record<string, u
   return readExmObject(parsed, EXM_LOCAL_FILE);
 }
 
+function rejectInstallDir(value: unknown, label: string): void {
+  if (value === undefined) {
+    return;
+  }
+
+  throw new Error(`${label} is no longer supported; remove it because exm always installs into ${EXM_INSTALL_DIR}`);
+}
+
+function rejectLocalRegistry(value: unknown): void {
+  if (value === undefined) {
+    return;
+  }
+
+  throw new Error(`${EXM_LOCAL_FILE} registry is not supported; set package.json exm.registry instead`);
+}
+
+function readRegistry(value: unknown, label: string): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`${label} must be a non-empty string`);
+  }
+
+  const url = new URL(value);
+
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`${label} must be an http or https URL`);
+  }
+
+  return url.href.endsWith('/') ? url.href : `${url.href}/`;
+}
+
 function hasLocalDependencyEffect(
   packageDependencies: Readonly<Record<string, string>>,
   localDependencies: Readonly<Record<string, string>>,
@@ -144,4 +161,8 @@ function hasLocalDependencyEffect(
   }
 
   return false;
+}
+
+function optionalStringField<Key extends string>(key: Key, value: string | undefined): Partial<Record<Key, string>> {
+  return value === undefined ? {} : { [key]: value } as Record<Key, string>;
 }

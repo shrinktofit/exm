@@ -11,7 +11,6 @@ export type InitProjectConfigStatus = 'initialized' | 'updated' | 'unchanged';
 
 export interface InitProjectConfigOptions {
   readonly projectRoot?: string;
-  readonly installDir?: string;
   readonly local?: boolean;
 }
 
@@ -26,18 +25,16 @@ export async function initProjectConfig(
   options: InitProjectConfigOptions = {},
 ): Promise<InitProjectConfigResult> {
   const projectRoot = path.resolve(options.projectRoot ?? process.cwd());
-  const installDir = validateInstallDir(options.installDir);
 
   if (options.local === true) {
-    return await initLocalConfig(projectRoot, installDir);
+    return await initLocalConfig(projectRoot);
   }
 
-  return await initPackageConfig(projectRoot, installDir);
+  return await initPackageConfig(projectRoot);
 }
 
 async function initPackageConfig(
   projectRoot: string,
-  installDir: string | undefined,
 ): Promise<InitProjectConfigResult> {
   const packageJsonPath = path.join(projectRoot, 'package.json');
   const packageJson = await readJsonObject(packageJsonPath);
@@ -45,7 +42,7 @@ async function initPackageConfig(
   const currentExm = packageJson.exm;
   const initialExm = currentExm === undefined;
   const exm = normalizeExmConfig(currentExm, 'package.json exm field');
-  const nextExm = applyInitDefaults(exm, installDir);
+  const nextExm = applyInitDefaults(exm);
   const changed = initialExm || !jsonEquals(exm, nextExm);
 
   if (changed) {
@@ -63,7 +60,6 @@ async function initPackageConfig(
 
 async function initLocalConfig(
   projectRoot: string,
-  installDir: string | undefined,
 ): Promise<InitProjectConfigResult> {
   await readJsonObject(path.join(projectRoot, 'package.json'));
 
@@ -71,7 +67,7 @@ async function initLocalConfig(
   const exists = await pathExists(localPath);
   const currentExm = exists ? await readLocalConfig(localPath) : undefined;
   const exm = normalizeExmConfig(currentExm, EXM_LOCAL_FILE);
-  const nextExm = applyInitDefaults(exm, installDir);
+  const nextExm = applyInitDefaults(exm);
   const changed = !exists || !jsonEquals(exm, nextExm);
 
   if (changed) {
@@ -109,47 +105,27 @@ function normalizeExmConfig(value: unknown, label: string): JsonObject {
     readDependencies(dependencies, `${label} dependencies`);
   }
 
-  validateExistingInstallDir(value.installDir, `${label} installDir`);
+  rejectInstallDir(value.installDir, `${label} installDir`);
 
   return value;
 }
 
-function applyInitDefaults(exm: JsonObject, installDir: string | undefined): JsonObject {
+function applyInitDefaults(exm: JsonObject): JsonObject {
   const nextExm: Record<string, JsonValue> = { ...exm };
 
   if (nextExm.dependencies === undefined) {
     nextExm.dependencies = {};
   }
 
-  if (installDir !== undefined) {
-    nextExm.installDir = installDir;
-  }
-
   return nextExm;
 }
 
-function validateInstallDir(installDir: string | undefined): string | undefined {
-  if (installDir === undefined) {
-    return undefined;
-  }
-
-  validateExistingInstallDir(installDir, 'exm installDir');
-
-  return installDir;
-}
-
-function validateExistingInstallDir(value: JsonValue | undefined, label: string): void {
+function rejectInstallDir(value: JsonValue | undefined, label: string): void {
   if (value === undefined) {
     return;
   }
 
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`${label} must be a non-empty string`);
-  }
-
-  if (path.isAbsolute(value)) {
-    throw new Error(`${label} must be relative to the project root`);
-  }
+  throw new Error(`${label} is no longer supported; remove it because exm always installs into extensions`);
 }
 
 function getInitStatus(initial: boolean, changed: boolean): InitProjectConfigStatus {
