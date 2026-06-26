@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { parse } from 'yaml';
 import { afterEach, describe, expect, it } from 'vitest';
-import { EXM_LOCAL_FILE, ExtensionSourceRegistry, GitExtensionSource, LinkExtensionSource, installProjectExtensions } from '../src/index.js';
+import { EXM_LOCAL_FILE, ExtensionSourceRegistry, GitExtensionSource, LinkExtensionSource, installProjectExtensions, saveExmLock } from '../src/index.js';
 
 const resolvedCommit = '0123456789abcdef0123456789abcdef01234567';
 const tempRoots: string[] = [];
@@ -165,6 +165,40 @@ describe('installProjectExtensions link source', () => {
     await expect(readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')).rejects.toThrow();
   });
 
+  it('should prune lock entries that are no longer declared during install', async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), 'exm-prune-lock-'));
+    tempRoots.push(workspace);
+    const projectRoot = path.join(workspace, 'project');
+    const sourceRoot = path.join(workspace, 'sample-extension');
+    const currentSpec = `link:${path.relative(projectRoot, sourceRoot)}`;
+    await mkdir(projectRoot, { recursive: true });
+    await mkdir(sourceRoot, { recursive: true });
+    await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
+      exm: {
+        dependencies: {
+          current: currentSpec,
+        },
+      },
+    }));
+    await saveExmLock(projectRoot, {
+      lockFileVersion: 1,
+      extensions: {
+        current: {
+          spec: currentSpec,
+        },
+        stale: {
+          spec: 'link:../stale-extension',
+        },
+      },
+    });
+
+    await installProjectExtensions({ projectRoot });
+    const lockContent = parse(await readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')) as {
+      extensions: Record<string, unknown>;
+    };
+
+    expect(Object.keys(lockContent.extensions)).toEqual(['current']);
+  });
   it('should replace existing unmanaged git targets and write the lockfile', async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-existing-git-'));
     tempRoots.push(workspace);
@@ -198,7 +232,7 @@ describe('installProjectExtensions link source', () => {
     });
     const lockContent = parse(await readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')) as {
       lockFileVersion: number;
-      extensions: Record<string, { spec: string; commit?: string }>;
+      extensions: Record<string, { spec: string; resolution?: { commit?: string } }>;
     };
 
     expect(result.installed).toEqual([
@@ -217,7 +251,7 @@ describe('installProjectExtensions link source', () => {
     ]);
     expect(lockContent.lockFileVersion).toBe(1);
     expect(lockContent.extensions.sample?.spec).toBe('https://github.com/feb/example.git');
-    expect(lockContent.extensions.sample?.commit).toBe(resolvedCommit);
+    expect(lockContent.extensions.sample?.resolution?.commit).toBe(resolvedCommit);
   });
 
   it('should save resolved commits for branch git dependencies in the lockfile', async () => {
@@ -251,7 +285,7 @@ describe('installProjectExtensions link source', () => {
       registry,
     });
     const lockContent = parse(await readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')) as {
-      extensions: Record<string, { spec: string; commit?: string }>;
+      extensions: Record<string, { spec: string; resolution?: { commit?: string } }>;
     };
 
     expect(calls).toEqual([
@@ -261,7 +295,7 @@ describe('installProjectExtensions link source', () => {
       ['rev-parse', 'HEAD'],
     ]);
     expect(lockContent.extensions.sample?.spec).toBe('https://github.com/feb/example.git#main');
-    expect(lockContent.extensions.sample?.commit).toBe(resolvedCommit);
+    expect(lockContent.extensions.sample?.resolution?.commit).toBe(resolvedCommit);
   });
 
   it('should adopt an existing unmanaged link target when it matches the current spec', async () => {

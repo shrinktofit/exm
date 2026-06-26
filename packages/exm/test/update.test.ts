@@ -160,9 +160,10 @@ describe('updateProjectExtensions', () => {
       lockFileVersion: 1,
       extensions: {
         sample: {
-          source: 'git',
           spec: 'https://github.com/feb/example.git',
-          commit: oldCommit,
+          resolution: {
+            commit: oldCommit,
+          },
         },
       },
     }, 'exm-lock.local.yaml');
@@ -196,6 +197,41 @@ describe('updateProjectExtensions', () => {
     await expect(readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')).rejects.toThrow();
   });
 
+  it('should prune lock entries that are no longer declared during update', async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), 'exm-update-prune-lock-'));
+    tempRoots.push(workspace);
+    const projectRoot = path.join(workspace, 'project');
+    const sourceRoot = path.join(workspace, 'sample-extension');
+    const currentSpec = `link:${path.relative(projectRoot, sourceRoot)}`;
+    await mkdir(projectRoot, { recursive: true });
+    await mkdir(sourceRoot, { recursive: true });
+    await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
+      exm: {
+        dependencies: {
+          current: currentSpec,
+        },
+      },
+    }));
+    await saveExmLock(projectRoot, {
+      lockFileVersion: 1,
+      extensions: {
+        current: {
+          spec: currentSpec,
+        },
+        stale: {
+          spec: 'link:../stale-extension',
+        },
+      },
+    });
+
+    const result = await updateProjectExtensions({ projectRoot });
+    const lockContent = await readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8');
+
+    expect(result.updated).toEqual([]);
+    expect(result.skipped).toEqual(['current']);
+    expect(lockContent).toContain('current:');
+    expect(lockContent).not.toContain('stale:');
+  });
   it('should pull existing managed git root extensions without a pinned commit', async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-update-'));
     tempRoots.push(workspace);
@@ -213,9 +249,10 @@ describe('updateProjectExtensions', () => {
       lockFileVersion: 1,
       extensions: {
         sample: {
-          source: 'git',
           spec: 'https://github.com/feb/example.git',
-          commit: oldCommit,
+          resolution: {
+            commit: oldCommit,
+          },
         },
       },
     });
@@ -272,9 +309,10 @@ describe('updateProjectExtensions', () => {
       lockFileVersion: 1,
       extensions: {
         sample: {
-          source: 'git',
           spec: 'https://github.com/feb/example.git',
-          commit: resolvedCommit,
+          resolution: {
+            commit: resolvedCommit,
+          },
         },
       },
     });

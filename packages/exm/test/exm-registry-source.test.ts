@@ -57,14 +57,11 @@ describe('ExmRegistrySource', () => {
       id: 'company-tool',
       spec: 'exm:@company/tool@^1.2.0',
       previous: {
-        source: 'exm',
         spec: 'exm:@company/tool@^1.2.0',
-        registry: 'https://registry.example.com/exm/',
-        packageName: '@company/tool',
-        version: '1.2.3',
-        resolved: 'https://registry.example.com/exm/%40company/tool/1.2.3/extension.tgz',
-        integrity: 'sha512-locked',
-        size: 123,
+        resolution: {
+          version: '1.2.3',
+          integrity: 'sha512-locked',
+        },
       },
     }, context);
 
@@ -75,7 +72,6 @@ describe('ExmRegistrySource', () => {
       version: '1.2.3',
       resolved: 'https://registry.example.com/exm/%40company/tool/1.2.3/extension.tgz',
       integrity: 'sha512-locked',
-      size: 123,
     });
   });
 

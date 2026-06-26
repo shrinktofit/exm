@@ -39,12 +39,13 @@ describe('installProjectExtensions npm source', () => {
     const lockContent = parse(await readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')) as {
       readonly lockFileVersion: number;
       readonly extensions: Record<string, {
-        readonly source: string;
         readonly spec: string;
-        readonly packageName?: string;
-        readonly version?: string;
-        readonly resolved?: string;
-        readonly integrity?: string;
+        readonly resolution?: {
+          readonly packageName?: string;
+          readonly version?: string;
+          readonly resolved?: string;
+          readonly integrity?: string;
+        };
       }>;
     };
 
@@ -58,12 +59,12 @@ describe('installProjectExtensions npm source', () => {
     await expect(readFile(path.join(targetPath, 'package.json'), 'utf8')).resolves.toContain('@company/tool');
     expect(lockContent.lockFileVersion).toBe(1);
     expect(lockContent.extensions['company-tool']).toEqual({
-      source: 'npm',
       spec: 'npm:@company/tool@^1.2.0',
-      packageName: '@company/tool',
-      version: '1.2.3',
-      resolved: 'https://registry.example.com/tool-1.2.3.tgz',
-      integrity: 'sha512-1.2.3',
+      resolution: {
+        version: '1.2.3',
+        resolved: 'https://registry.example.com/tool-1.2.3.tgz',
+        integrity: 'sha512-1.2.3',
+      },
     });
   });
 
@@ -88,12 +89,12 @@ describe('installProjectExtensions npm source', () => {
       lockFileVersion: 1,
       extensions: {
         'company-tool': {
-          source: 'npm',
           spec: 'npm:@company/tool@^1.2.0',
-          packageName: '@company/tool',
-          version: '1.2.3',
-          resolved: 'https://registry.example.com/tool-1.2.3.tgz',
-          integrity: 'sha512-1.2.3',
+          resolution: {
+            version: '1.2.3',
+            resolved: 'https://registry.example.com/tool-1.2.3.tgz',
+            integrity: 'sha512-1.2.3',
+          },
         },
       },
     });
@@ -141,12 +142,12 @@ describe('updateProjectExtensions npm source', () => {
       lockFileVersion: 1,
       extensions: {
         'company-tool': {
-          source: 'npm',
           spec: 'npm:@company/tool@^1.2.0',
-          packageName: '@company/tool',
-          version: '1.2.3',
-          resolved: 'https://registry.example.com/tool-1.2.3.tgz',
-          integrity: 'sha512-1.2.3',
+          resolution: {
+            version: '1.2.3',
+            resolved: 'https://registry.example.com/tool-1.2.3.tgz',
+            integrity: 'sha512-1.2.3',
+          },
         },
       },
     });
@@ -155,7 +156,7 @@ describe('updateProjectExtensions npm source', () => {
 
     const result = await updateProjectExtensions({ projectRoot, registry });
     const lockContent = parse(await readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')) as {
-      readonly extensions: Record<string, { readonly version?: string }>;
+      readonly extensions: Record<string, { readonly resolution?: { readonly version?: string } }>;
     };
 
     expect(result.updated).toEqual([
@@ -166,7 +167,7 @@ describe('updateProjectExtensions npm source', () => {
       },
     ]);
     await expect(readFile(path.join(targetPath, 'package.json'), 'utf8')).resolves.toContain('1.2.4');
-    expect(lockContent.extensions['company-tool']?.version).toBe('1.2.4');
+    expect(lockContent.extensions['company-tool']?.resolution?.version).toBe('1.2.4');
   });
 
   it('should skip exact npm versions that already match the lockfile', async () => {
@@ -195,12 +196,12 @@ describe('updateProjectExtensions npm source', () => {
       lockFileVersion: 1,
       extensions: {
         'company-tool': {
-          source: 'npm',
           spec: 'npm:@company/tool@1.2.3',
-          packageName: '@company/tool',
-          version: '1.2.3',
-          resolved: 'https://registry.example.com/tool-1.2.3.tgz',
-          integrity: 'sha512-1.2.3',
+          resolution: {
+            version: '1.2.3',
+            resolved: 'https://registry.example.com/tool-1.2.3.tgz',
+            integrity: 'sha512-1.2.3',
+          },
         },
       },
     });

@@ -155,33 +155,34 @@ export class ExmRegistrySource implements ExtensionSource {
     exmSpecifier: ExmRegistrySpecifier,
     context: SourceContext,
   ): Promise<ResolvedExmRegistryExtension | undefined> {
+    const resolution = previous?.resolution;
+    const previousSpecifier = previous === undefined
+      ? undefined
+      : await parseLockedExmRegistrySpecifier(previous.spec);
+
     if (
-      previous?.source !== 'exm'
-      || previous.registry !== registry
-      || previous.packageName !== exmSpecifier.packageName
-      || previous.version === undefined
-      || previous.resolved === undefined
-      || previous.integrity === undefined
-      || previous.size === undefined
+      resolution === undefined
+      || previousSpecifier?.packageName !== exmSpecifier.packageName
+      || resolution.version === undefined
+      || resolution.integrity === undefined
     ) {
       return undefined;
     }
 
     if (exmSpecifier.exactVersion !== undefined) {
-      if (previous.version !== exmSpecifier.exactVersion) {
+      if (resolution.version !== exmSpecifier.exactVersion) {
         return undefined;
       }
-    } else if (context.update === true || !await this.versionRange.satisfies(previous.version, exmSpecifier.range)) {
+    } else if (context.update === true || !await this.versionRange.satisfies(resolution.version, exmSpecifier.range)) {
       return undefined;
     }
 
     return {
-      registry: previous.registry,
-      packageName: previous.packageName,
-      version: previous.version,
-      resolved: previous.resolved,
-      integrity: previous.integrity,
-      size: previous.size,
+      registry,
+      packageName: exmSpecifier.packageName,
+      version: resolution.version,
+      resolved: createExmRegistryArtifactUrl(registry, exmSpecifier.packageName, createExmRegistryArtifactPath(resolution.version)),
+      integrity: resolution.integrity,
     };
   }
 }
@@ -223,10 +224,6 @@ export class HttpExmRegistryClient implements ExmRegistryClient {
 
     try {
       const downloaded = await this.remoteClient.downloadFile(resolved.resolved, tarballPath, projectRoot);
-
-      if (downloaded.size !== resolved.size) {
-        throw new Error(`exm registry artifact size mismatch for ${resolved.packageName}@${resolved.version}: expected ${resolved.size}, got ${downloaded.size}`);
-      }
 
       if (downloaded.integrity !== resolved.integrity) {
         throw new Error(`exm registry artifact integrity mismatch for ${resolved.packageName}@${resolved.version}`);
@@ -472,6 +469,10 @@ function normalizeExmRegistryArtifact(value: unknown, label: string, version: st
 
   const artifactPath = readRequiredString(value.path, `exm registry index ${label} version "${version}" artifact path`);
   validateArtifactPath(artifactPath, label, version);
+
+  if (artifactPath !== createExmRegistryArtifactPath(version)) {
+    throw new Error(`exm registry index ${label} version "${version}" artifact path must be ${createExmRegistryArtifactPath(version)}`);
+  }
   const integrity = readRequiredString(value.integrity, `exm registry index ${label} version "${version}" artifact integrity`);
   validateSha512Integrity(integrity, `exm registry index ${label} version "${version}" artifact integrity`);
 
@@ -512,6 +513,14 @@ async function extractExmRegistryArtifact(tarballPath: string, targetPath: strin
   }
 }
 
+async function parseLockedExmRegistrySpecifier(spec: string): Promise<ExmRegistrySpecifier | undefined> {
+  try {
+    return await parseExmRegistrySpecifier(spec);
+  } catch {
+    return undefined;
+  }
+}
+
 function readRequiredRegistry(value: string | undefined, spec: string): string {
   if (value === undefined) {
     throw new Error(`exm registry dependency source "${spec}" requires package.json exm.registry`);
@@ -531,8 +540,6 @@ function createExmCacheKey(resolved: ResolvedExmRegistryExtension): string {
     .update(resolved.resolved)
     .update('\0')
     .update(resolved.integrity)
-    .update('\0')
-    .update(String(resolved.size))
     .digest('hex')
     .slice(0, 16);
 }

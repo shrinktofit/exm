@@ -5,7 +5,7 @@ import { EXM_INSTALL_DIR, loadProjectConfig } from '../config/project-config.js'
 import { assertPathInside, pathExists } from '../fs/path.js';
 import { EXM_LOCAL_LOCK_FILE, createExmLockEntry, loadExmLock, saveExmLock } from '../lock/exm-lock.js';
 import { createDefaultSourceRegistry, ExtensionSourceRegistry } from '../sources/registry.js';
-import type { ExmLockExtension } from '../lock/exm-lock.js';
+import type { ExmLockExtension, ExmLockFile } from '../lock/exm-lock.js';
 import type { MaterializedExtension, ResolvedExtension, SourceContext } from '../sources/source.js';
 
 export interface ExmLogger {
@@ -41,11 +41,20 @@ export async function installProjectExtensions(
   const projectRoot = path.resolve(options.projectRoot ?? options.cwd ?? process.cwd());
   const config = await loadProjectConfig(projectRoot);
   const installRoot = path.resolve(config.projectRoot, EXM_INSTALL_DIR);
-  const dependencyCount = Object.keys(config.dependencies).length;
+  const dependencyIds = Object.keys(config.dependencies);
+  const dependencyCount = dependencyIds.length;
 
   assertPathInside(config.projectRoot, installRoot, 'exm install root');
 
+  const lockFileName = getProjectLockFileName(config.usesLocalLock);
+  const lock = await loadExmLock(config.projectRoot, lockFileName);
+  const didPruneLock = pruneUnusedLockEntries(lock, dependencyIds);
+
   if (dependencyCount === 0) {
+    if (didPruneLock) {
+      await saveExmLock(config.projectRoot, lock, lockFileName);
+    }
+
     return {
       projectRoot: config.projectRoot,
       installRoot,
@@ -57,8 +66,6 @@ export async function installProjectExtensions(
 
   const cacheRoot = path.join(config.projectRoot, '.exm', 'cache');
   const registry = options.registry ?? createDefaultSourceRegistry();
-  const lockFileName = getProjectLockFileName(config.usesLocalLock);
-  const lock = await loadExmLock(config.projectRoot, lockFileName);
   const sourceContext: SourceContext = {
     projectRoot: config.projectRoot,
     installRoot,
@@ -131,11 +138,20 @@ export async function updateProjectExtensions(
   const projectRoot = path.resolve(options.projectRoot ?? options.cwd ?? process.cwd());
   const config = await loadProjectConfig(projectRoot);
   const installRoot = path.resolve(config.projectRoot, EXM_INSTALL_DIR);
-  const dependencyCount = Object.keys(config.dependencies).length;
+  const dependencyIds = Object.keys(config.dependencies);
+  const dependencyCount = dependencyIds.length;
 
   assertPathInside(config.projectRoot, installRoot, 'exm install root');
 
+  const lockFileName = getProjectLockFileName(config.usesLocalLock);
+  const lock = await loadExmLock(config.projectRoot, lockFileName);
+  const didPruneLock = pruneUnusedLockEntries(lock, dependencyIds);
+
   if (dependencyCount === 0) {
+    if (didPruneLock) {
+      await saveExmLock(config.projectRoot, lock, lockFileName);
+    }
+
     return {
       projectRoot: config.projectRoot,
       installRoot,
@@ -147,8 +163,6 @@ export async function updateProjectExtensions(
 
   const cacheRoot = path.join(config.projectRoot, '.exm', 'cache');
   const registry = options.registry ?? createDefaultSourceRegistry();
-  const lockFileName = getProjectLockFileName(config.usesLocalLock);
-  const lock = await loadExmLock(config.projectRoot, lockFileName);
   const sourceContext: SourceContext = {
     projectRoot: config.projectRoot,
     installRoot,
@@ -226,7 +240,7 @@ export async function updateProjectExtensions(
     }
   }
 
-  if (updated.length > 0 || adopted.length > 0) {
+  if (updated.length > 0 || adopted.length > 0 || didPruneLock) {
     await saveExmLock(config.projectRoot, lock, lockFileName);
   }
 
@@ -260,20 +274,37 @@ function shouldReplaceTargetForUpdate(lockedSpec: string | undefined, resolved: 
   return lockedSpec !== resolved.spec;
 }
 
+function pruneUnusedLockEntries(lock: ExmLockFile, dependencyIds: readonly string[]): boolean {
+  const declaredIds = new Set(dependencyIds);
+  let didPrune = false;
+
+  for (const id of Object.keys(lock.extensions)) {
+    if (!declaredIds.has(id)) {
+      delete lock.extensions[id];
+      didPrune = true;
+    }
+  }
+
+  return didPrune;
+}
+
 function lockEntryChanged(previous: ExmLockExtension | undefined, next: ExmLockExtension): boolean {
   if (previous === undefined) {
     return true;
   }
 
-  return previous.source !== next.source
-    || previous.spec !== next.spec
-    || previous.registry !== next.registry
-    || previous.commit !== next.commit
-    || previous.packageName !== next.packageName
-    || previous.version !== next.version
-    || previous.resolved !== next.resolved
-    || previous.integrity !== next.integrity
-    || previous.size !== next.size;
+  return previous.spec !== next.spec
+    || lockResolutionChanged(previous.resolution, next.resolution);
+}
+
+function lockResolutionChanged(
+  previous: ExmLockExtension['resolution'],
+  next: ExmLockExtension['resolution'],
+): boolean {
+  return previous?.commit !== next?.commit
+    || previous?.version !== next?.version
+    || previous?.resolved !== next?.resolved
+    || previous?.integrity !== next?.integrity;
 }
 
 function getProjectLockFileName(usesLocalLock: boolean): string | undefined {

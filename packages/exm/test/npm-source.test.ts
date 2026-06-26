@@ -110,12 +110,12 @@ describe('NpmExtensionSource', () => {
       id: 'company-tool',
       spec: 'npm:@company/tool@^1.2.0',
       previous: {
-        source: 'npm',
         spec: 'npm:@company/tool@^1.2.0',
-        packageName: '@company/tool',
-        version: '1.2.3',
-        resolved: 'https://registry.example.com/tool-1.2.3.tgz',
-        integrity: 'sha512-locked',
+        resolution: {
+          version: '1.2.3',
+          resolved: 'https://registry.example.com/tool-1.2.3.tgz',
+          integrity: 'sha512-locked',
+        },
       },
     }, context);
 
@@ -146,11 +146,11 @@ describe('NpmExtensionSource', () => {
       id: 'company-tool',
       spec: 'npm:@company/tool@^1.2.0',
       previous: {
-        source: 'npm',
         spec: 'npm:@company/tool@^1.2.0',
-        packageName: '@company/tool',
-        version: '1.2.3',
-        resolved: 'https://registry.example.com/tool-1.2.3.tgz',
+        resolution: {
+          version: '1.2.3',
+          resolved: 'https://registry.example.com/tool-1.2.3.tgz',
+        },
       },
     }, context);
 

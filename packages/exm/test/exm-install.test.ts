@@ -40,14 +40,15 @@ describe('installProjectExtensions exm registry source', () => {
     const lockContent = parse(await readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')) as {
       readonly lockFileVersion: number;
       readonly extensions: Record<string, {
-        readonly source: string;
         readonly spec: string;
-        readonly registry?: string;
-        readonly packageName?: string;
-        readonly version?: string;
-        readonly resolved?: string;
-        readonly integrity?: string;
-        readonly size?: number;
+        readonly resolution?: {
+          readonly registry?: string;
+          readonly packageName?: string;
+          readonly version?: string;
+          readonly resolved?: string;
+          readonly integrity?: string;
+          readonly size?: number;
+        };
       }>;
     };
 
@@ -69,14 +70,11 @@ describe('installProjectExtensions exm registry source', () => {
     await expect(readFile(path.join(targetPath, 'package.json'), 'utf8')).resolves.toContain('@company/tool');
     expect(lockContent.lockFileVersion).toBe(1);
     expect(lockContent.extensions['company-tool']).toEqual({
-      source: 'exm',
       spec: 'exm:@company/tool@^1.2.0',
-      registry: 'https://registry.example.com/exm/',
-      packageName: '@company/tool',
-      version: '1.2.3',
-      resolved: 'https://registry.example.com/exm/%40company/tool/1.2.3/extension.tgz',
-      integrity: 'sha512-1.2.3',
-      size: 123,
+      resolution: {
+        version: '1.2.3',
+        integrity: 'sha512-1.2.3',
+      },
     });
   });
 
@@ -102,14 +100,11 @@ describe('installProjectExtensions exm registry source', () => {
       lockFileVersion: 1,
       extensions: {
         'company-tool': {
-          source: 'exm',
           spec: 'exm:@company/tool@^1.2.0',
-          registry: 'https://registry.example.com/exm/',
-          packageName: '@company/tool',
-          version: '1.2.3',
-          resolved: 'https://registry.example.com/exm/%40company/tool/1.2.3/extension.tgz',
-          integrity: 'sha512-1.2.3',
-          size: 123,
+          resolution: {
+            version: '1.2.3',
+            integrity: 'sha512-1.2.3',
+          },
         },
       },
     });
@@ -184,14 +179,11 @@ describe('updateProjectExtensions exm registry source', () => {
       lockFileVersion: 1,
       extensions: {
         'company-tool': {
-          source: 'exm',
           spec: 'exm:@company/tool@^1.2.0',
-          registry: 'https://registry.example.com/exm/',
-          packageName: '@company/tool',
-          version: '1.2.3',
-          resolved: 'https://registry.example.com/exm/%40company/tool/1.2.3/extension.tgz',
-          integrity: 'sha512-1.2.3',
-          size: 123,
+          resolution: {
+            version: '1.2.3',
+            integrity: 'sha512-1.2.3',
+          },
         },
       },
     });
@@ -200,7 +192,7 @@ describe('updateProjectExtensions exm registry source', () => {
 
     const result = await updateProjectExtensions({ projectRoot, registry });
     const lockContent = parse(await readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')) as {
-      readonly extensions: Record<string, { readonly version?: string; readonly size?: number }>;
+      readonly extensions: Record<string, { readonly resolution?: { readonly version?: string; readonly integrity?: string } }>;
     };
 
     expect(result.updated).toEqual([
@@ -211,8 +203,8 @@ describe('updateProjectExtensions exm registry source', () => {
       },
     ]);
     await expect(readFile(path.join(targetPath, 'package.json'), 'utf8')).resolves.toContain('1.2.4');
-    expect(lockContent.extensions['company-tool']?.version).toBe('1.2.4');
-    expect(lockContent.extensions['company-tool']?.size).toBe(124);
+    expect(lockContent.extensions['company-tool']?.resolution?.version).toBe('1.2.4');
+    expect(lockContent.extensions['company-tool']?.resolution?.integrity).toBe('sha512-1.2.4');
   });
 
   it('should skip exact exm registry versions that already match the lockfile', async () => {
@@ -242,14 +234,11 @@ describe('updateProjectExtensions exm registry source', () => {
       lockFileVersion: 1,
       extensions: {
         'company-tool': {
-          source: 'exm',
           spec: 'exm:@company/tool@1.2.3',
-          registry: 'https://registry.example.com/exm/',
-          packageName: '@company/tool',
-          version: '1.2.3',
-          resolved: 'https://registry.example.com/exm/%40company/tool/1.2.3/extension.tgz',
-          integrity: 'sha512-1.2.3',
-          size: 123,
+          resolution: {
+            version: '1.2.3',
+            integrity: 'sha512-1.2.3',
+          },
         },
       },
     });

@@ -5,15 +5,15 @@ export interface ExtensionRequest {
 }
 
 export interface PreviousResolvedExtension {
-  readonly source: string;
   readonly spec: string;
-  readonly registry?: string;
+  readonly resolution?: PreviousResolvedExtensionResolution;
+}
+
+export interface PreviousResolvedExtensionResolution {
   readonly commit?: string;
-  readonly packageName?: string;
   readonly version?: string;
   readonly resolved?: string;
   readonly integrity?: string;
-  readonly size?: number;
 }
 
 export interface SourceContext {
@@ -54,7 +54,7 @@ export interface ResolvedExmRegistryExtension {
   readonly version: string;
   readonly resolved: string;
   readonly integrity: string;
-  readonly size: number;
+  readonly size?: number;
 }
 
 export interface MaterializedExtension {

@@ -13,15 +13,15 @@ export interface ExmLockFile {
 }
 
 export interface ExmLockExtension {
-  readonly source: string;
   readonly spec: string;
-  readonly registry?: string;
+  readonly resolution?: ExmLockResolution;
+}
+
+export interface ExmLockResolution {
   readonly commit?: string;
-  readonly packageName?: string;
   readonly version?: string;
   readonly resolved?: string;
   readonly integrity?: string;
-  readonly size?: number;
 }
 
 export async function loadExmLock(
@@ -63,25 +63,22 @@ export function createExmLockEntry(
 ): ExmLockExtension {
   if (resolved.exm !== undefined) {
     return {
-      source: 'exm',
       spec: resolved.spec,
-      registry: resolved.exm.registry,
-      packageName: resolved.exm.packageName,
-      version: resolved.exm.version,
-      resolved: resolved.exm.resolved,
-      integrity: resolved.exm.integrity,
-      size: resolved.exm.size,
+      resolution: {
+        version: resolved.exm.version,
+        integrity: resolved.exm.integrity,
+      },
     };
   }
 
   if (resolved.npm !== undefined) {
     return {
-      source: 'npm',
       spec: resolved.spec,
-      packageName: resolved.npm.packageName,
-      version: resolved.npm.version,
-      resolved: resolved.npm.resolved,
-      ...optionalStringField('integrity', resolved.npm.integrity),
+      resolution: {
+        version: resolved.npm.version,
+        resolved: resolved.npm.resolved,
+        ...optionalStringField('integrity', resolved.npm.integrity),
+      },
     };
   }
 
@@ -93,14 +90,14 @@ export function createExmLockEntry(
     }
 
     return {
-      source: 'git',
       spec: resolved.spec,
-      commit,
+      resolution: {
+        commit,
+      },
     };
   }
 
   return {
-    source: resolved.sourceType,
     spec: resolved.spec,
   };
 }
@@ -146,17 +143,61 @@ function normalizeExmLockExtension(lockFileName: string, id: string, value: unkn
     throw new Error(`${lockFileName} extension "${id}" must be an object`);
   }
 
+  const spec = readString(lockFileName, value.spec, id, 'spec');
+  const resolution = normalizeResolutionForSpec(lockFileName, id, spec, value.resolution);
+
   return {
-    source: readString(lockFileName, value.source, id, 'source'),
-    spec: readString(lockFileName, value.spec, id, 'spec'),
-    ...optionalStringField('registry', readOptionalString(lockFileName, value, id, 'registry')),
-    ...optionalStringField('commit', readOptionalString(lockFileName, value, id, 'commit')),
-    ...optionalStringField('packageName', readOptionalString(lockFileName, value, id, 'packageName')),
-    ...optionalStringField('version', readOptionalString(lockFileName, value, id, 'version')),
-    ...optionalStringField('resolved', readOptionalString(lockFileName, value, id, 'resolved')),
-    ...optionalStringField('integrity', readOptionalString(lockFileName, value, id, 'integrity')),
-    ...optionalNumberField('size', readOptionalNumber(lockFileName, value, id, 'size')),
+    spec,
+    ...optionalResolutionField(resolution),
   };
+}
+
+function normalizeResolutionForSpec(
+  lockFileName: string,
+  id: string,
+  spec: string,
+  value: unknown,
+): ExmLockResolution | undefined {
+  if (spec.startsWith('exm:')) {
+    const resolution = readResolutionRecord(lockFileName, id, value);
+
+    return {
+      version: readString(lockFileName, resolution.version, id, 'resolution.version'),
+      integrity: readString(lockFileName, resolution.integrity, id, 'resolution.integrity'),
+    };
+  }
+
+  if (spec.startsWith('npm:')) {
+    const resolution = readResolutionRecord(lockFileName, id, value);
+
+    return {
+      version: readString(lockFileName, resolution.version, id, 'resolution.version'),
+      resolved: readString(lockFileName, resolution.resolved, id, 'resolution.resolved'),
+      ...optionalStringField('integrity', readOptionalString(lockFileName, resolution, id, 'resolution.integrity', 'integrity')),
+    };
+  }
+
+  if (spec.startsWith('link:')) {
+    if (value !== undefined) {
+      throw new Error(`${lockFileName} extension "${id}" resolution is not supported for link specs`);
+    }
+
+    return undefined;
+  }
+
+  const resolution = readResolutionRecord(lockFileName, id, value);
+
+  return {
+    commit: readString(lockFileName, resolution.commit, id, 'resolution.commit'),
+  };
+}
+
+function readResolutionRecord(lockFileName: string, id: string, value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) {
+    throw new Error(`${lockFileName} extension "${id}" resolution must be an object`);
+  }
+
+  return value;
 }
 
 function readOptionalString(
@@ -164,31 +205,13 @@ function readOptionalString(
   value: Record<string, unknown>,
   id: string,
   field: string,
+  key = field,
 ): string | undefined {
-  if (value[field] === undefined) {
+  if (value[key] === undefined) {
     return undefined;
   }
 
-  return readString(lockFileName, value[field], id, field);
-}
-
-function readOptionalNumber(
-  lockFileName: string,
-  value: Record<string, unknown>,
-  id: string,
-  field: string,
-): number | undefined {
-  if (value[field] === undefined) {
-    return undefined;
-  }
-
-  const fieldValue = value[field];
-
-  if (typeof fieldValue !== 'number' || !Number.isInteger(fieldValue)) {
-    throw new Error(`${lockFileName} extension "${id}" ${field} must be an integer`);
-  }
-
-  return fieldValue;
+  return readString(lockFileName, value[key], id, field);
 }
 
 function readString(lockFileName: string, value: unknown, id: string, field: string): string {
@@ -203,8 +226,8 @@ function optionalStringField<Key extends string>(key: Key, value: string | undef
   return value === undefined ? {} : { [key]: value } as Record<Key, string>;
 }
 
-function optionalNumberField<Key extends string>(key: Key, value: number | undefined): Partial<Record<Key, number>> {
-  return value === undefined ? {} : { [key]: value } as Record<Key, number>;
+function optionalResolutionField(value: ExmLockResolution | undefined): { readonly resolution?: ExmLockResolution } {
+  return value === undefined ? {} : { resolution: value };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

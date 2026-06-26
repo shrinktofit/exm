@@ -113,28 +113,33 @@ export class NpmExtensionSource implements ExtensionSource {
     npmSpecifier: NpmSpecifier,
     context: SourceContext,
   ): Promise<ResolvedNpmExtension | undefined> {
+    const resolution = previous?.resolution;
+    const previousSpecifier = previous === undefined
+      ? undefined
+      : await parseLockedNpmSpecifier(previous.spec);
+
     if (
-      previous?.source !== 'npm'
-      || previous.packageName !== npmSpecifier.packageName
-      || previous.version === undefined
-      || previous.resolved === undefined
+      resolution === undefined
+      || previousSpecifier?.packageName !== npmSpecifier.packageName
+      || resolution.version === undefined
+      || resolution.resolved === undefined
     ) {
       return undefined;
     }
 
     if (npmSpecifier.exactVersion !== undefined) {
-      if (previous.version !== npmSpecifier.exactVersion) {
+      if (resolution.version !== npmSpecifier.exactVersion) {
         return undefined;
       }
-    } else if (context.update === true || !await this.versionRange.satisfies(previous.version, npmSpecifier.range)) {
+    } else if (context.update === true || !await this.versionRange.satisfies(resolution.version, npmSpecifier.range)) {
       return undefined;
     }
 
     return {
-      packageName: previous.packageName,
-      version: previous.version,
-      resolved: previous.resolved,
-      integrity: previous.integrity,
+      packageName: npmSpecifier.packageName,
+      version: resolution.version,
+      resolved: resolution.resolved,
+      integrity: resolution.integrity,
     };
   }
 }
@@ -202,6 +207,14 @@ export async function parseNpmSpecifier(spec: string): Promise<NpmSpecifier> {
     range,
     ...optionalStringField('exactVersion', await readExactVersion(range)),
   };
+}
+
+async function parseLockedNpmSpecifier(spec: string): Promise<NpmSpecifier | undefined> {
+  try {
+    return await parseNpmSpecifier(spec);
+  } catch {
+    return undefined;
+  }
 }
 
 function createNpmCacheKey(resolved: ResolvedNpmExtension): string {
