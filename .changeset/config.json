@@ -8,6 +8,7 @@
   "baseBranch": "stf/dev",
   "updateInternalDependencies": "patch",
   "ignore": [
-    "@bsgames/workflow"
+    "@bsgames/workflow",
+    "@bsgames/exm-registry-server"
   ]
 }

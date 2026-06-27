@@ -65,7 +65,7 @@ Use `--dry-run` to validate the package and print the planned remote URLs withou
 
 ## Registry Server
 
-The server package is `@bsgames/exm-registry-server` in `packages/exm-registry-server`. It exposes npm-compatible read endpoints and a small exm publish API:
+The registry server lives in `packages/exm-registry-server`. It exposes npm-compatible read endpoints and a small exm publish API:
 
 ```text
 GET  /@scope%2fpkg

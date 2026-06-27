@@ -1,19 +1,12 @@
 {
   "name": "@bsgames/exm-registry-server",
   "version": "0.0.1",
+  "private": true,
   "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/shrinktofit/exm.git",
     "directory": "packages/exm-registry-server"
-  },
-  "files": [
-    "bin/exm-registry-server.js",
-    "lib/**/*{.js,.d.ts}",
-    "exm-registry-server.example.yaml"
-  ],
-  "publishConfig": {
-    "access": "public"
   },
   "exports": {
     ".": "./lib/index.js"
@@ -23,7 +16,6 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "prepublishOnly": "node --run build -- --clean && node --run build",
     "start": "node ./bin/exm-registry-server.js",
     "test": "node --run test:compile && node --run t",
     "test:compile": "tsc -b test/tsconfig.json",
