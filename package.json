@@ -1,15 +1,19 @@
 {
-  "name": "@feb/exm-workspace",
+  "name": "@bsgames/exm-workspace",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm --filter @feb/exm build && pnpm --filter @feb/exm-registry-server build",
-    "test": "pnpm --filter @feb/exm test && pnpm --filter @feb/exm-registry-server test",
-    "lint": "eslint packages/exm/src/*.ts packages/exm/src/**/*.ts packages/exm/test/*.ts packages/exm-registry-server/src/*.ts packages/exm-registry-server/test/*.ts"
+    "build": "pnpm --filter @bsgames/exm build && pnpm --filter @bsgames/exm-registry-server build",
+    "changeset": "changeset",
+    "test": "pnpm --filter @bsgames/exm test && pnpm --filter @bsgames/exm-registry-server test",
+    "lint": "eslint packages/exm/src/*.ts packages/exm/src/**/*.ts packages/exm/test/*.ts packages/exm-registry-server/src/*.ts packages/exm-registry-server/test/*.ts",
+    "version-packages": "changeset version",
+    "release": "pnpm build && changeset publish"
   },
   "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319",
   "devDependencies": {
+    "@changesets/cli": "^2.31.0",
     "@shrinktofit/eslint-config": "^0.0.3",
     "eslint": "^9.36.0",
     "typescript": "catalog:"

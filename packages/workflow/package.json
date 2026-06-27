@@ -1,5 +1,5 @@
 {
-  "name": "@feb/workflow",
+  "name": "@bsgames/workflow",
   "version": "0.0.8",
   "private": true,
   "type": "module",

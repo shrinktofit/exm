@@ -6,10 +6,10 @@
 
 ```bash
 pnpm install
-pnpm --filter @feb/exm build
-pnpm --filter @feb/exm test
-pnpm --filter @feb/exm-registry-server build
-pnpm --filter @feb/exm-registry-server test
+pnpm --filter @bsgames/exm build
+pnpm --filter @bsgames/exm test
+pnpm --filter @bsgames/exm-registry-server build
+pnpm --filter @bsgames/exm-registry-server test
 pnpm exec eslint packages/exm/src/*.ts packages/exm/src/**/*.ts packages/exm/test/*.ts packages/exm-registry-server/src/*.ts packages/exm-registry-server/test/*.ts
 ```
 
@@ -22,7 +22,7 @@ Add exm config to the Cocos Creator project `package.json`. The registry is the 
   "exm": {
     "registry": "https://exm.example/",
     "dependencies": {
-      "addressable-assets": "exm:@feb/extension-addressable-assets@^0.0.1",
+      "some-extension": "exm:@org/some-extension@^1.0.0",
       "local-tool": "link:../local-tool",
       "git-tool": "git+https://github.com/org/repo.git#main:extensions/tool"
     }
@@ -61,18 +61,11 @@ exm publish @scope/extension-name --dry-run
 exm publish @scope/extension-name
 ```
 
-Publish flow:
-
-1. Clean and regenerate `<target-package>/.deploy` with `pnpm deploy`.
-2. Validate `.deploy/package.json` name and version.
-3. Create a complete `extension.tgz` from `.deploy`, including `node_modules`.
-4. Call the registry server publish API. The CLI does not write Nexus package metadata or indexes directly.
-
-Dry-run performs deploy, packaging, hashing, and server-side publish planning, but does not upload anything. It prints the artifact URL, metadata URL, integrity, and size.
+Use `--dry-run` to validate the package and print the planned remote URLs without publishing.
 
 ## Registry Server
 
-The server package is `@feb/exm-registry-server` in `packages/exm-registry-server`. It exposes npm-compatible read endpoints and a small exm publish API:
+The server package is `@bsgames/exm-registry-server` in `packages/exm-registry-server`. It exposes npm-compatible read endpoints and a small exm publish API:
 
 ```text
 GET  /@scope%2fpkg
@@ -105,8 +98,8 @@ nexus:
 Start it after building:
 
 ```bash
-pnpm --filter @feb/exm-registry-server build
-pnpm --filter @feb/exm-registry-server start -- --config packages/exm-registry-server/exm-registry-server.example.yaml
+pnpm --filter @bsgames/exm-registry-server build
+pnpm --filter @bsgames/exm-registry-server start -- --config packages/exm-registry-server/exm-registry-server.example.yaml
 ```
 
 Environment variables override YAML values. Use them for secrets and deployment-specific overrides:

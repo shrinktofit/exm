@@ -241,7 +241,7 @@ async function readPackageVersion(): Promise<string> {
   const version = packageJson.version;
 
   if (typeof version !== 'string') {
-    throw new Error('@feb/exm package.json must include a string version');
+    throw new Error('@bsgames/exm package.json must include a string version');
   }
 
   return version;

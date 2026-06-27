@@ -1,5 +1,5 @@
 {
-  "extends": "@feb/workflow/tsconfig/lib",
+  "extends": "@bsgames/workflow/tsconfig/lib",
   "include": ["src"],
   "compilerOptions": {
     "rootDir": "src",

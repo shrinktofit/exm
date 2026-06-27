@@ -1,11 +1,19 @@
 {
-  "name": "@feb/exm",
+  "name": "@bsgames/exm",
   "version": "0.0.4",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shrinktofit/exm.git",
+    "directory": "packages/exm"
+  },
   "files": [
     "bin/exm.js",
     "lib/**/*{.js,.d.ts}"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": "./lib/index.js"
   },
@@ -20,13 +28,13 @@
     "t": "vitest run"
   },
   "devDependencies": {
-    "@feb/workflow": "workspace:*",
     "@types/node": "catalog:",
     "@types/picomatch": "^4.0.3",
     "@types/tar-fs": "^2.0.4",
     "@types/yargs": "^17.0.35",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "@bsgames/workflow": "workspace:*"
   },
   "dependencies": {
     "@npmcli/config": "^10.11.0",

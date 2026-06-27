@@ -1,5 +1,5 @@
 {
-  "extends": "@feb/workflow/tsconfig/test",
+  "extends": "@bsgames/workflow/tsconfig/test",
   "include": ["."],
   "compilerOptions": {
     "rootDir": ".",
