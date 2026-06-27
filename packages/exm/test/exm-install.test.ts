@@ -4,7 +4,7 @@ import path from 'node:path';
 import { parse } from 'yaml';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ExmRegistrySource, ExtensionSourceRegistry, LinkExtensionSource, installProjectExtensions, saveExmLock, updateProjectExtensions } from '../src/index.js';
-import type { ExmRegistryClient, ExmRegistryPackageRequest, ExmVersionRange, ResolvedExmRegistryExtension } from '../src/index.js';
+import type { ExmRegistryClient, ExmRegistryLockedPackageRequest, ExmRegistryPackageRequest, ExmVersionRange, ResolvedExmRegistryExtension } from '../src/index.js';
 
 const tempRoots: string[] = [];
 
@@ -60,6 +60,7 @@ describe('installProjectExtensions exm registry source', () => {
         projectRoot,
       },
     ]);
+    expect(client.lockedRequests).toEqual([]);
     expect(result.installed).toEqual([
       {
         id: 'company-tool',
@@ -114,6 +115,15 @@ describe('installProjectExtensions exm registry source', () => {
     const result = await installProjectExtensions({ projectRoot, registry });
 
     expect(client.requests).toEqual([]);
+    expect(client.lockedRequests).toEqual([
+      {
+        registry: 'https://registry.example.com/exm/',
+        packageName: '@company/tool',
+        version: '1.2.3',
+        integrity: 'sha512-1.2.3',
+        projectRoot,
+      },
+    ]);
     expect(result.installed).toEqual([
       {
         id: 'company-tool',
@@ -148,6 +158,7 @@ describe('installProjectExtensions exm registry source', () => {
       registry: createExmRegistry(client),
     })).rejects.toThrow('requires package.json exm.registry');
     expect(client.requests).toEqual([]);
+    expect(client.lockedRequests).toEqual([]);
   });
 });
 
@@ -248,6 +259,15 @@ describe('updateProjectExtensions exm registry source', () => {
     const result = await updateProjectExtensions({ projectRoot, registry });
 
     expect(client.requests).toEqual([]);
+    expect(client.lockedRequests).toEqual([
+      {
+        registry: 'https://registry.example.com/exm/',
+        packageName: '@company/tool',
+        version: '1.2.3',
+        integrity: 'sha512-1.2.3',
+        projectRoot,
+      },
+    ]);
     expect(result.updated).toEqual([]);
     expect(result.skipped).toEqual(['company-tool']);
     await expect(access(targetPath)).resolves.toBeUndefined();
@@ -256,6 +276,7 @@ describe('updateProjectExtensions exm registry source', () => {
 
 class FakeExmRegistryClient implements ExmRegistryClient {
   public readonly requests: ExmRegistryPackageRequest[] = [];
+  public readonly lockedRequests: ExmRegistryLockedPackageRequest[] = [];
 
   public constructor(private readonly resolutions: ResolvedExmRegistryExtension[]) {}
 
@@ -268,6 +289,18 @@ class FakeExmRegistryClient implements ExmRegistryClient {
     }
 
     return resolution;
+  }
+
+  public async resolveLocked(request: ExmRegistryLockedPackageRequest): Promise<ResolvedExmRegistryExtension> {
+    this.lockedRequests.push(request);
+
+    return {
+      registry: request.registry,
+      packageName: request.packageName,
+      version: request.version,
+      resolved: `https://artifacts.example.com/exm-artifacts/%40company/tool/${request.version}/extension.tgz`,
+      integrity: request.integrity,
+    };
   }
 
   public async extract(resolved: ResolvedExmRegistryExtension, targetPath: string): Promise<void> {
@@ -301,7 +334,7 @@ function createExmResolution(version: string): ResolvedExmRegistryExtension {
     registry: 'https://registry.example.com/exm/',
     packageName: '@company/tool',
     version,
-    resolved: `https://registry.example.com/exm/%40company/tool/${version}/extension.tgz`,
+    resolved: `https://artifacts.example.com/exm-artifacts/%40company/tool/${version}/extension.tgz`,
     integrity: `sha512-${version}`,
     size: Number(version.split('.').at(-1))! + 120,
   };

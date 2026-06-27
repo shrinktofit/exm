@@ -1,0 +1,12 @@
+publicUrl: http://exm.bluesquall.local/
+
+listen:
+  host: 0.0.0.0
+  port: 4873
+
+nexus:
+  baseUrl: http://nexus.bluesquall.local/
+  metadataRepository: exm-registry
+  artifactRepository: exm-artifacts
+  username: exm-publisher
+  # Prefer EXM_NEXUS_PASSWORD or EXM_NEXUS_TOKEN for secrets.

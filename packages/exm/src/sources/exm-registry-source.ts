@@ -25,8 +25,18 @@ export interface ExmRegistryPackageRequest {
   readonly projectRoot: string;
 }
 
+export interface ExmRegistryLockedPackageRequest {
+  readonly registry: string;
+  readonly packageName: string;
+  readonly version: string;
+  readonly integrity: string;
+  readonly projectRoot: string;
+}
+
 export interface ExmRegistryClient {
   resolve(request: ExmRegistryPackageRequest): Promise<ResolvedExmRegistryExtension>;
+
+  resolveLocked(request: ExmRegistryLockedPackageRequest): Promise<ResolvedExmRegistryExtension>;
 
   extract(resolved: ResolvedExmRegistryExtension, targetPath: string, projectRoot: string): Promise<void>;
 }
@@ -35,10 +45,6 @@ export interface ExmRegistryRemoteClient {
   readJson(url: string, projectRoot: string): Promise<unknown | undefined>;
 
   downloadFile(url: string, targetPath: string, projectRoot: string): Promise<DownloadedArtifact>;
-
-  putFile(url: string, sourcePath: string, contentType: string, projectRoot: string): Promise<void>;
-
-  putJson(url: string, value: unknown, projectRoot: string): Promise<void>;
 }
 
 export interface DownloadedArtifact {
@@ -46,15 +52,21 @@ export interface DownloadedArtifact {
   readonly size: number;
 }
 
-export interface ExmRegistryIndex {
-  readonly schemaVersion: 1;
+export interface ExmPackageMetadata {
   readonly name: string;
-  readonly versions: Readonly<Record<string, ExmRegistryVersion>>;
+  readonly versions: Readonly<Record<string, ExmPackageVersionMetadata>>;
 }
 
-export interface ExmRegistryVersion {
+export interface ExmPackageVersionMetadata {
+  readonly name: string;
   readonly version: string;
-  readonly artifact: ExmRegistryArtifact;
+  readonly dist: {
+    readonly tarball: string;
+    readonly integrity: string;
+  };
+  readonly exm: {
+    readonly artifact: ExmRegistryArtifact;
+  };
 }
 
 export interface ExmRegistryArtifact {
@@ -177,13 +189,13 @@ export class ExmRegistrySource implements ExtensionSource {
       return undefined;
     }
 
-    return {
+    return await this.registryClient.resolveLocked({
       registry,
       packageName: exmSpecifier.packageName,
       version: resolution.version,
-      resolved: createExmRegistryArtifactUrl(registry, exmSpecifier.packageName, createExmRegistryArtifactPath(resolution.version)),
       integrity: resolution.integrity,
-    };
+      projectRoot: context.projectRoot,
+    });
   }
 }
 
@@ -192,29 +204,46 @@ export class HttpExmRegistryClient implements ExmRegistryClient {
 
   public async resolve(request: ExmRegistryPackageRequest): Promise<ResolvedExmRegistryExtension> {
     const registry = normalizeExmRegistryUrl(request.registry, 'exm registry');
-    const indexUrl = createExmRegistryIndexUrl(registry, request.packageName);
-    const indexValue = await this.remoteClient.readJson(indexUrl, request.projectRoot);
+    const metadataUrl = createExmPackageMetadataUrl(registry, request.packageName);
+    const metadataValue = await this.remoteClient.readJson(metadataUrl, request.projectRoot);
 
-    if (indexValue === undefined) {
-      throw new Error(`exm registry package "${request.packageName}" was not found at ${indexUrl}`);
+    if (metadataValue === undefined) {
+      throw new Error(`exm registry package "${request.packageName}" was not found at ${metadataUrl}`);
     }
 
-    const index = await normalizeExmRegistryIndex(indexValue, request.packageName, indexUrl);
-    const version = await new SemverExmVersionRange().maxSatisfying(Object.keys(index.versions), request.range);
+    const metadata = normalizeExmPackageMetadata(metadataValue, request.packageName, metadataUrl);
+    const version = await new SemverExmVersionRange().maxSatisfying(Object.keys(metadata.versions), request.range);
 
     if (version === undefined) {
       throw new Error(`exm registry package "${request.packageName}" has no version satisfying ${request.range}`);
     }
 
-    const entry = index.versions[version]!;
+    return createResolvedExmRegistryExtension(registry, request.packageName, metadata.versions[version]!);
+  }
+
+  public async resolveLocked(request: ExmRegistryLockedPackageRequest): Promise<ResolvedExmRegistryExtension> {
+    const registry = normalizeExmRegistryUrl(request.registry, 'exm registry');
+    const metadataUrl = createExmPackageMetadataUrl(registry, request.packageName);
+    const metadataValue = await this.remoteClient.readJson(metadataUrl, request.projectRoot);
+
+    if (metadataValue === undefined) {
+      throw new Error(`exm registry package "${request.packageName}" was not found at ${metadataUrl}`);
+    }
+
+    const metadata = normalizeExmPackageMetadata(metadataValue, request.packageName, metadataUrl);
+    const version = metadata.versions[request.version];
+
+    if (version === undefined) {
+      throw new Error(`exm registry package "${request.packageName}" version ${request.version} was not found at ${metadataUrl}`);
+    }
+
+    if (version.dist.integrity !== request.integrity && version.exm.artifact.integrity !== request.integrity) {
+      throw new Error(`exm registry package "${request.packageName}" version ${request.version} integrity does not match the lockfile`);
+    }
 
     return {
-      registry,
-      packageName: request.packageName,
-      version,
-      resolved: createExmRegistryArtifactUrl(registry, request.packageName, entry.artifact.path),
-      integrity: entry.artifact.integrity,
-      size: entry.artifact.size,
+      ...createResolvedExmRegistryExtension(registry, request.packageName, version),
+      integrity: request.integrity,
     };
   }
 
@@ -282,34 +311,6 @@ export class NpmRegistryFetchRemoteClient implements ExmRegistryRemoteClient {
       size,
     };
   }
-
-  public async putFile(url: string, sourcePath: string, contentType: string, projectRoot: string): Promise<void> {
-    const fetch = await loadNpmRegistryFetch();
-    const options = await loadNpmConfigOptions(projectRoot);
-    const response = await fetch(url, {
-      ...options,
-      method: 'PUT',
-      body: createReadStream(sourcePath),
-      headers: {
-        'content-type': contentType,
-      },
-    });
-    assertOkResponse(response, url);
-  }
-
-  public async putJson(url: string, value: unknown, projectRoot: string): Promise<void> {
-    const fetch = await loadNpmRegistryFetch();
-    const options = await loadNpmConfigOptions(projectRoot);
-    const response = await fetch(url, {
-      ...options,
-      method: 'PUT',
-      body: `${JSON.stringify(value, null, 2)}\n`,
-      headers: {
-        'content-type': 'application/json',
-      },
-    });
-    assertOkResponse(response, url);
-  }
 }
 
 export class SemverExmVersionRange implements ExmVersionRange {
@@ -364,54 +365,12 @@ export function normalizeExmRegistryUrl(value: string, label: string): string {
   return url.href.endsWith('/') ? url.href : `${url.href}/`;
 }
 
-export function createExmRegistryIndexUrl(registry: string, packageName: string): string {
-  return new URL(`${encodePackagePath(packageName)}/index.json`, registry).href;
-}
-
-export function createExmRegistryArtifactUrl(registry: string, packageName: string, artifactPath: string): string {
-  return new URL(`${encodePackagePath(packageName)}/${artifactPath}`, registry).href;
+export function createExmPackageMetadataUrl(registry: string, packageName: string): string {
+  return new URL(encodePackagePath(packageName), registry).href;
 }
 
 export function createExmRegistryArtifactPath(version: string): string {
   return `${encodeURIComponent(version)}/extension.tgz`;
-}
-
-export function createEmptyExmRegistryIndex(packageName: string): ExmRegistryIndex {
-  return {
-    schemaVersion: 1,
-    name: packageName,
-    versions: {},
-  };
-}
-
-export async function normalizeExmRegistryIndex(value: unknown, packageName: string, label: string): Promise<ExmRegistryIndex> {
-  if (!isRecord(value)) {
-    throw new Error(`exm registry index ${label} must contain an object`);
-  }
-
-  if (value.schemaVersion !== 1) {
-    throw new Error(`exm registry index ${label} schemaVersion must be 1`);
-  }
-
-  if (value.name !== packageName) {
-    throw new Error(`exm registry index ${label} name must be ${packageName}`);
-  }
-
-  if (!isRecord(value.versions)) {
-    throw new Error(`exm registry index ${label} versions must be an object`);
-  }
-
-  const versions: Record<string, ExmRegistryVersion> = {};
-
-  for (const [version, entry] of Object.entries(value.versions)) {
-    versions[version] = await normalizeExmRegistryVersion(entry, version, label);
-  }
-
-  return {
-    schemaVersion: 1,
-    name: packageName,
-    versions,
-  };
 }
 
 export function createSha512IntegrityFromBuffer(buffer: Buffer): string {
@@ -437,47 +396,96 @@ export async function createSha512IntegrityFromFile(filePath: string): Promise<D
   };
 }
 
-async function normalizeExmRegistryVersion(value: unknown, version: string, label: string): Promise<ExmRegistryVersion> {
-  const semver = await loadSemver();
-
-  if (semver.valid(version) === null) {
-    throw new Error(`exm registry index ${label} version "${version}" must be valid semver`);
-  }
-
+export function normalizeExmPackageMetadata(value: unknown, packageName: string, label: string): ExmPackageMetadata {
   if (!isRecord(value)) {
-    throw new Error(`exm registry index ${label} version "${version}" must be an object`);
+    throw new Error(`exm registry package metadata ${label} must contain an object`);
   }
 
-  if (value.version !== version) {
-    throw new Error(`exm registry index ${label} version "${version}" must include matching version`);
+  if (value.name !== packageName) {
+    throw new Error(`exm registry package metadata ${label} name must be ${packageName}`);
+  }
+
+  if (!isRecord(value.versions)) {
+    throw new Error(`exm registry package metadata ${label} versions must be an object`);
+  }
+
+  const versions: Record<string, ExmPackageVersionMetadata> = {};
+
+  for (const [version, entry] of Object.entries(value.versions)) {
+    versions[version] = normalizeExmPackageVersionMetadata(entry, packageName, version, label);
   }
 
   return {
+    name: packageName,
+    versions,
+  };
+}
+
+function createResolvedExmRegistryExtension(registry: string, packageName: string, version: ExmPackageVersionMetadata): ResolvedExmRegistryExtension {
+  return {
+    registry,
+    packageName,
+    version: version.version,
+    resolved: version.dist.tarball,
+    integrity: version.dist.integrity,
+    size: version.exm.artifact.size,
+  };
+}
+
+function normalizeExmPackageVersionMetadata(value: unknown, packageName: string, version: string, label: string): ExmPackageVersionMetadata {
+  if (!isRecord(value)) {
+    throw new Error(`exm registry package metadata ${label} version "${version}" must be an object`);
+  }
+
+  if (value.name !== packageName) {
+    throw new Error(`exm registry package metadata ${label} version "${version}" name must be ${packageName}`);
+  }
+
+  if (value.version !== version) {
+    throw new Error(`exm registry package metadata ${label} version "${version}" must include matching version`);
+  }
+
+  if (!isRecord(value.dist)) {
+    throw new Error(`exm registry package metadata ${label} version "${version}" dist must be an object`);
+  }
+
+  const tarball = readRequiredString(value.dist.tarball, `exm registry package metadata ${label} version "${version}" dist.tarball`);
+  const integrity = readRequiredString(value.dist.integrity, `exm registry package metadata ${label} version "${version}" dist.integrity`);
+  const artifact = normalizeExmRegistryArtifact(isRecord(value.exm) ? value.exm.artifact : undefined, label, version);
+
+  return {
+    name: packageName,
     version,
-    artifact: normalizeExmRegistryArtifact(value.artifact, label, version),
+    dist: {
+      tarball,
+      integrity,
+    },
+    exm: {
+      artifact,
+    },
   };
 }
 
 function normalizeExmRegistryArtifact(value: unknown, label: string, version: string): ExmRegistryArtifact {
   if (!isRecord(value)) {
-    throw new Error(`exm registry index ${label} version "${version}" artifact must be an object`);
+    throw new Error(`exm registry package metadata ${label} version "${version}" artifact must be an object`);
   }
 
   if (value.type !== 'tgz') {
-    throw new Error(`exm registry index ${label} version "${version}" artifact type must be tgz`);
+    throw new Error(`exm registry package metadata ${label} version "${version}" artifact type must be tgz`);
   }
 
-  const artifactPath = readRequiredString(value.path, `exm registry index ${label} version "${version}" artifact path`);
-  validateArtifactPath(artifactPath, label, version);
+  const artifactPath = readRequiredString(value.path, `exm registry package metadata ${label} version "${version}" artifact path`);
 
   if (artifactPath !== createExmRegistryArtifactPath(version)) {
-    throw new Error(`exm registry index ${label} version "${version}" artifact path must be ${createExmRegistryArtifactPath(version)}`);
+    throw new Error(`exm registry package metadata ${label} version "${version}" artifact path must be ${createExmRegistryArtifactPath(version)}`);
   }
-  const integrity = readRequiredString(value.integrity, `exm registry index ${label} version "${version}" artifact integrity`);
-  validateSha512Integrity(integrity, `exm registry index ${label} version "${version}" artifact integrity`);
+
+  const integrity = readRequiredString(value.integrity, `exm registry package metadata ${label} version "${version}" artifact integrity`);
+  validateSha512Integrity(integrity, `exm registry package metadata ${label} version "${version}" artifact integrity`);
 
   if (typeof value.size !== 'number' || !Number.isInteger(value.size) || value.size <= 0) {
-    throw new Error(`exm registry index ${label} version "${version}" artifact size must be a positive integer`);
+    throw new Error(`exm registry package metadata ${label} version "${version}" artifact size must be a positive integer`);
   }
 
   return {
@@ -595,14 +603,6 @@ async function readExactVersion(range: string): Promise<string | undefined> {
   const semver = await loadSemver();
 
   return semver.valid(range) ?? undefined;
-}
-
-function validateArtifactPath(value: string, label: string, version: string): void {
-  const parts = value.split('/');
-
-  if (value.length === 0 || value.startsWith('/') || value.includes('\\') || parts.some((part) => part.length === 0 || part === '.' || part === '..')) {
-    throw new Error(`exm registry index ${label} version "${version}" artifact path must be a relative URL path`);
-  }
 }
 
 function validateSha512Integrity(value: string, label: string): void {

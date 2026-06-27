@@ -4,9 +4,10 @@ import path from 'node:path';
 import { list as listTar } from 'tar';
 import { afterEach, describe, expect, it } from 'vitest';
 import { deployExtensionPackage, publishExtensionPackage } from '../src/index.js';
-import type { ExmRegistryRemoteClient, PublishCommandOptions, PublishCommandRunner } from '../src/index.js';
+import type { ExmRegistryPublishClient, ExmRegistryPublishPlanRequest, ExmRegistryPublishRequest, ExmRegistryPublishResult, PublishCommandOptions, PublishCommandRunner } from '../src/index.js';
 
 const workspaces: string[] = [];
+const REGISTRY_URL = 'https://registry.example.com/';
 
 afterEach(async () => {
   await Promise.all(workspaces.map(async (workspace) => {
@@ -69,12 +70,12 @@ describe('deployExtensionPackage', () => {
 });
 
 describe('publishExtensionPackage', () => {
-  it('should resolve the package from the workspace root and dry-run publish to exm registry', async () => {
+  it('should resolve the package from the workspace root and dry-run through the registry server plan API', async () => {
     /// @case
     /// 1. A root package script runs exm publish --dry-run from the pnpm workspace root.
     /// 2. The root package name is different from the extension package name.
     /// @expect
-    /// exm resolves the target package root, creates a Raw registry artifact locally, validates the index update, and skips remote PUTs.
+    /// exm deploys and packages locally, asks the registry server for planned URLs, and does not upload the artifact.
     const { packageRoot, workspaceRoot } = await createWorkspace('@feb/extension-sample');
     await writePackageJson(workspaceRoot, {
       name: 'workspace-home',
@@ -84,7 +85,7 @@ describe('publishExtensionPackage', () => {
     await mkdir(path.dirname(staleFile), { recursive: true });
     await writeFile(staleFile, 'old');
     const fake = createFakePublishCommands('@feb/extension-sample', '1.2.3');
-    const remote = new FakeRegistryRemoteClient();
+    const registryClient = new FakeRegistryPublishClient();
     const logMessages: string[] = [];
 
     const result = await publishExtensionPackage({
@@ -92,7 +93,7 @@ describe('publishExtensionPackage', () => {
       cwd: workspaceRoot,
       dryRun: true,
       commandRunner: fake.runner,
-      registryClient: remote,
+      registryClient,
       logger: {
         info: (message: string): void => {
           logMessages.push(message);
@@ -107,140 +108,104 @@ describe('publishExtensionPackage', () => {
       workspaceRoot,
       deployDir: path.join(packageRoot, '.deploy'),
       dryRun: true,
-      registry: 'https://registry.example.com/repository/exm-registry/',
-      indexUrl: 'https://registry.example.com/repository/exm-registry/%40feb/extension-sample/index.json',
-      artifactUrl: 'https://registry.example.com/repository/exm-registry/%40feb/extension-sample/1.2.3/extension.tgz',
+      registry: REGISTRY_URL,
+      metadataUrl: 'https://registry.example.com/%40feb/extension-sample',
+      artifactUrl: 'https://registry.example.com/%40feb/extension-sample/1.2.3/extension.tgz',
     });
     expect(result.integrity).toMatch(/^sha512-/);
     expect(result.size).toBeGreaterThan(0);
-    expect(logMessages).toContain(`would upload artifact ${result.artifactUrl}`);
-    expect(logMessages).toContain(`would update index ${result.indexUrl}`);
+    expect(logMessages).toContain(`would publish artifact ${result.artifactUrl}`);
+    expect(logMessages).toContain(`would update metadata ${result.metadataUrl}`);
     expect(logMessages).toContain(`artifact integrity ${result.integrity}`);
     expect(logMessages).toContain(`artifact size ${result.size}`);
-    expect(logMessages).toContain('skip exm registry upload --dry-run');
+    expect(logMessages).toContain('skip exm registry publish --dry-run');
     await expect(access(staleFile)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(fake.commands.map((command) => command.file)).toEqual(['pnpm']);
-    expect(remote.reads).toEqual(['https://registry.example.com/repository/exm-registry/%40feb/extension-sample/index.json']);
-    expect(remote.putFiles).toEqual([]);
-    expect(remote.putJsons).toEqual([]);
+    expect(registryClient.plans).toHaveLength(1);
+    expect(registryClient.plans[0]).toMatchObject({
+      registry: REGISTRY_URL,
+      packageName: '@feb/extension-sample',
+      version: '1.2.3',
+      projectRoot: packageRoot,
+    });
+    expect(registryClient.publishes).toEqual([]);
 
     const deployedPackageJson = JSON.parse(await readFile(path.join(packageRoot, '.deploy', 'package.json'), 'utf8')) as Record<string, unknown>;
     expect(deployedPackageJson.private).toBe(true);
   });
 
-  it('should upload the complete deploy artifact and index when not dry-run', async () => {
+  it('should upload the complete deploy artifact through the registry server publish API', async () => {
     /// @case
     /// 1. exm publish runs without dry-run mode.
-    /// 2. The package version does not already exist in the Raw registry index.
+    /// 2. The package version does not already exist in the registry server.
     /// @expect
-    /// exm uploads extension.tgz containing node_modules, then uploads an index.json entry pointing at that artifact.
+    /// exm sends the complete extension.tgz to the server and does not write Nexus metadata directly.
     const { packageRoot } = await createWorkspace('@feb/extension-sample');
     const fake = createFakePublishCommands('@feb/extension-sample', '1.2.3');
-    const remote = new FakeRegistryRemoteClient();
+    const registryClient = new FakeRegistryPublishClient();
 
     const result = await publishExtensionPackage({
       packageName: '@feb/extension-sample',
       cwd: packageRoot,
       commandRunner: fake.runner,
-      registryClient: remote,
+      registryClient,
     });
 
-    expect(remote.putFiles).toEqual([
-      {
-        url: result.artifactUrl,
-        contentType: 'application/gzip',
-        projectRoot: packageRoot,
-      },
-    ]);
-    expect(remote.putJsons).toHaveLength(1);
-    expect(remote.putJsons[0]).toMatchObject({
-      url: result.indexUrl,
+    expect(registryClient.plans).toEqual([]);
+    expect(registryClient.publishes).toHaveLength(1);
+    expect(registryClient.publishes[0]).toMatchObject({
+      registry: REGISTRY_URL,
+      packageName: '@feb/extension-sample',
+      version: '1.2.3',
+      integrity: result.integrity,
+      size: result.size,
       projectRoot: packageRoot,
-      value: {
-        schemaVersion: 1,
-        name: '@feb/extension-sample',
-        versions: {
-          '1.2.3': {
-            version: '1.2.3',
-            artifact: {
-              type: 'tgz',
-              path: '1.2.3/extension.tgz',
-              integrity: result.integrity,
-              size: result.size,
-            },
-          },
-        },
-      },
     });
-    expect(remote.tarballEntries).toContain('package/package.json');
-    expect(remote.tarballEntries).toContain('package/node_modules/@feb/runtime/index.js');
-    expect(remote.tarballEntries).toContain('package/node_modules/@feb/runtime/linked.js');
-    expect(remote.tarballEntryTypes.get('package/node_modules/@feb/runtime/linked.js')).toBe('File');
+    expect(registryClient.tarballEntries).toContain('package/package.json');
+    expect(registryClient.tarballEntries).toContain('package/node_modules/@feb/runtime/index.js');
+    expect(registryClient.tarballEntries).toContain('package/node_modules/@feb/runtime/linked.js');
+    expect(registryClient.tarballEntryTypes.get('package/node_modules/@feb/runtime/linked.js')).toBe('File');
   });
 
   it('should publish prerelease packages as plain exm registry versions', async () => {
     /// @case
     /// 1. pnpm deploy produces a prerelease package version such as 0.0.1-alpha.1.
-    /// 2. exm publish uploads to Raw registry.
+    /// 2. exm publish uploads to the registry server.
     /// @expect
-    /// The prerelease version is written directly into index.json without npm dist-tag behavior.
+    /// The prerelease version is passed directly to the custom publish endpoint without npm dist-tag behavior.
     const { packageRoot } = await createWorkspace('@feb/extension-sample');
     const fake = createFakePublishCommands('@feb/extension-sample', '0.0.1-alpha.1');
-    const remote = new FakeRegistryRemoteClient();
+    const registryClient = new FakeRegistryPublishClient();
 
     const result = await publishExtensionPackage({
       packageName: '@feb/extension-sample',
       cwd: packageRoot,
       dryRun: false,
       commandRunner: fake.runner,
-      registryClient: remote,
+      registryClient,
     });
 
-    expect(result.artifactUrl).toBe('https://registry.example.com/repository/exm-registry/%40feb/extension-sample/0.0.1-alpha.1/extension.tgz');
-    expect(remote.putJsons[0]?.value).toMatchObject({
-      versions: {
-        '0.0.1-alpha.1': {
-          version: '0.0.1-alpha.1',
-          artifact: {
-            path: '0.0.1-alpha.1/extension.tgz',
-          },
-        },
-      },
-    });
+    expect(result.artifactUrl).toBe('https://registry.example.com/%40feb/extension-sample/0.0.1-alpha.1/extension.tgz');
+    expect(registryClient.publishes[0]?.version).toBe('0.0.1-alpha.1');
   });
 
-  it('should reject an already published version', async () => {
+  it('should surface duplicate version failures from the registry server', async () => {
     /// @case
-    /// 1. The Raw registry index already contains the package version being published.
+    /// 1. The registry server already contains the package version being published.
     /// 2. exm publish runs for that same version.
     /// @expect
-    /// Publishing fails before uploading the artifact or rewriting the index.
+    /// Publishing fails before claiming success; version immutability is enforced by the server.
     const { packageRoot } = await createWorkspace('@feb/extension-sample');
     const fake = createFakePublishCommands('@feb/extension-sample', '1.2.3');
-    const remote = new FakeRegistryRemoteClient({
-      schemaVersion: 1,
-      name: '@feb/extension-sample',
-      versions: {
-        '1.2.3': {
-          version: '1.2.3',
-          artifact: {
-            type: 'tgz',
-            path: '1.2.3/extension.tgz',
-            integrity: 'sha512-ZXhpc3Rpbmc=',
-            size: 123,
-          },
-        },
-      },
-    });
+    const registryClient = new FakeRegistryPublishClient({ duplicate: true });
 
     await expect(publishExtensionPackage({
       packageName: '@feb/extension-sample',
       cwd: packageRoot,
       commandRunner: fake.runner,
-      registryClient: remote,
+      registryClient,
     })).rejects.toThrow('version 1.2.3 already exists');
-    expect(remote.putFiles).toEqual([]);
-    expect(remote.putJsons).toEqual([]);
+    expect(registryClient.publishes).toHaveLength(1);
   });
 
   it('should require package.json exm.registry', async () => {
@@ -248,18 +213,18 @@ describe('publishExtensionPackage', () => {
     /// 1. The target package does not declare package.json exm.registry.
     /// 2. exm publish runs after deployment.
     /// @expect
-    /// Publishing fails before any Raw registry upload.
+    /// Publishing fails before any registry server request.
     const { packageRoot } = await createWorkspace('@feb/extension-sample', { registry: false });
     const fake = createFakePublishCommands('@feb/extension-sample', '1.2.3');
-    const remote = new FakeRegistryRemoteClient();
+    const registryClient = new FakeRegistryPublishClient();
 
     await expect(publishExtensionPackage({
       packageName: '@feb/extension-sample',
       cwd: packageRoot,
       commandRunner: fake.runner,
-      registryClient: remote,
+      registryClient,
     })).rejects.toThrow('package.json exm.registry is required');
-    expect(remote.putFiles).toEqual([]);
+    expect(registryClient.publishes).toEqual([]);
   });
 
   it('should require a workspace root', async () => {
@@ -275,7 +240,7 @@ describe('publishExtensionPackage', () => {
       packageName: '@feb/extension-sample',
       cwd: packageRoot,
       commandRunner: fake.runner,
-      registryClient: new FakeRegistryRemoteClient(),
+      registryClient: new FakeRegistryPublishClient(),
     })).rejects.toThrow('Unable to find pnpm-workspace.yaml');
     expect(fake.commands).toEqual([]);
   });
@@ -293,7 +258,7 @@ describe('publishExtensionPackage', () => {
       packageName: '@feb/extension-sample',
       cwd: workspaceRoot,
       commandRunner: fake.runner,
-      registryClient: new FakeRegistryRemoteClient(),
+      registryClient: new FakeRegistryPublishClient(),
     })).rejects.toThrow('pnpm-workspace.yaml packages must be an array of strings');
     expect(fake.commands).toEqual([]);
   });
@@ -311,7 +276,7 @@ describe('publishExtensionPackage', () => {
       packageName: '@feb/missing-extension',
       cwd: workspaceRoot,
       commandRunner: fake.runner,
-      registryClient: new FakeRegistryRemoteClient(),
+      registryClient: new FakeRegistryPublishClient(),
     })).rejects.toThrow('Unable to find workspace package "@feb/missing-extension"');
     expect(fake.commands).toEqual([]);
   });
@@ -337,7 +302,7 @@ describe('publishExtensionPackage', () => {
       packageName: '@feb/extension-sample',
       cwd: workspaceRoot,
       commandRunner: fake.runner,
-      registryClient: new FakeRegistryRemoteClient(),
+      registryClient: new FakeRegistryPublishClient(),
     })).rejects.toThrow('matched multiple package roots');
     expect(fake.commands).toEqual([]);
   });
@@ -347,20 +312,20 @@ describe('publishExtensionPackage', () => {
     /// 1. pnpm deploy produces a package.json for a different package.
     /// 2. exm publish validates the deploy output before publishing.
     /// @expect
-    /// Publishing stops before Raw registry access.
+    /// Publishing stops before registry server access.
     const { workspaceRoot } = await createWorkspace('@feb/extension-sample');
     const fake = createFakePublishCommands('@feb/other-extension', '1.2.3');
-    const remote = new FakeRegistryRemoteClient();
+    const registryClient = new FakeRegistryPublishClient();
 
     await expect(publishExtensionPackage({
       packageName: '@feb/extension-sample',
       cwd: workspaceRoot,
       dryRun: true,
       commandRunner: fake.runner,
-      registryClient: remote,
+      registryClient,
     })).rejects.toThrow('.deploy/package.json name must match publish package');
     expect(fake.commands.map((command) => command.file)).toEqual(['pnpm']);
-    expect(remote.reads).toEqual([]);
+    expect(registryClient.plans).toEqual([]);
   });
 });
 
@@ -375,46 +340,49 @@ interface FakePublishCommands {
   readonly runner: PublishCommandRunner;
 }
 
-interface FakePutFile {
-  readonly url: string;
-  readonly contentType: string;
-  readonly projectRoot: string;
-}
-
-interface FakePutJson {
-  readonly url: string;
-  readonly value: unknown;
-  readonly projectRoot: string;
-}
-
-class FakeRegistryRemoteClient implements ExmRegistryRemoteClient {
-  public readonly reads: string[] = [];
-  public readonly putFiles: FakePutFile[] = [];
-  public readonly putJsons: FakePutJson[] = [];
+class FakeRegistryPublishClient implements ExmRegistryPublishClient {
+  public readonly plans: ExmRegistryPublishPlanRequest[] = [];
+  public readonly publishes: ExmRegistryPublishRequest[] = [];
   public tarballEntries: string[] = [];
   public tarballEntryTypes = new Map<string, string>();
 
-  public constructor(private readonly index?: unknown) {}
+  public constructor(private readonly options: { readonly duplicate?: boolean } = {}) {}
 
-  public async readJson(url: string): Promise<unknown | undefined> {
-    this.reads.push(url);
-    return this.index;
+  public async plan(request: ExmRegistryPublishPlanRequest): Promise<ExmRegistryPublishResult> {
+    this.plans.push(request);
+
+    if (this.options.duplicate === true) {
+      throw new Error(`exm registry package "${request.packageName}" version ${request.version} already exists`);
+    }
+
+    return createPublishResult(request);
   }
 
-  public async downloadFile(): Promise<{ integrity: string; size: number }> {
-    throw new Error('Unexpected downloadFile');
-  }
-
-  public async putFile(url: string, sourcePath: string, contentType: string, projectRoot: string): Promise<void> {
-    this.putFiles.push({ url, contentType, projectRoot });
-    const tarballEntries = await listTarballEntries(sourcePath);
+  public async publish(request: ExmRegistryPublishRequest): Promise<ExmRegistryPublishResult> {
+    this.publishes.push(request);
+    const tarballEntries = await listTarballEntries(request.tarballPath);
     this.tarballEntries = tarballEntries.map((entry) => entry.path);
     this.tarballEntryTypes = new Map(tarballEntries.map((entry) => [entry.path, entry.type]));
-  }
 
-  public async putJson(url: string, value: unknown, projectRoot: string): Promise<void> {
-    this.putJsons.push({ url, value, projectRoot });
+    if (this.options.duplicate === true) {
+      throw new Error(`exm registry package "${request.packageName}" version ${request.version} already exists`);
+    }
+
+    return createPublishResult(request);
   }
+}
+
+function createPublishResult(request: ExmRegistryPublishPlanRequest): ExmRegistryPublishResult {
+  const encodedPackage = request.packageName.split('/').map((segment) => encodeURIComponent(segment)).join('/');
+
+  return {
+    packageName: request.packageName,
+    version: request.version,
+    metadataUrl: `${request.registry}${encodedPackage}`,
+    artifactUrl: `${request.registry}${encodedPackage}/${encodeURIComponent(request.version)}/extension.tgz`,
+    integrity: request.integrity,
+    size: request.size,
+  };
 }
 
 function createFakePublishCommands(deployedName: string, version: string): FakePublishCommands {
@@ -455,7 +423,7 @@ async function createWorkspace(packageName: string, options: { readonly registry
       ? {}
       : {
         exm: {
-          registry: 'https://registry.example.com/repository/exm-registry',
+          registry: REGISTRY_URL,
         },
       }),
   });
@@ -472,7 +440,7 @@ async function createLoosePackage(packageName: string): Promise<string> {
     name: packageName,
     version: '1.2.3',
     exm: {
-      registry: 'https://registry.example.com/repository/exm-registry/',
+      registry: REGISTRY_URL,
     },
   });
 

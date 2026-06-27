@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { createWriteStream } from 'node:fs';
+import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -11,9 +11,9 @@ import { glob } from 'tinyglobby';
 import { parse as parseYaml } from 'yaml';
 import { isJsonObject, readJsonObject } from '../config/package-json.js';
 import { assertDirectory, assertPathInside, pathExists } from '../fs/path.js';
-import { NpmRegistryFetchRemoteClient, createEmptyExmRegistryIndex, createExmRegistryArtifactPath, createExmRegistryArtifactUrl, createExmRegistryIndexUrl, createSha512IntegrityFromFile, normalizeExmRegistryIndex, normalizeExmRegistryUrl } from '../sources/exm-registry-source.js';
+import { createSha512IntegrityFromFile, normalizeExmRegistryUrl } from '../sources/exm-registry-source.js';
+import { loadNpmConfigOptions } from '../sources/npm-source.js';
 import type { JsonObject } from '../config/package-json.js';
-import type { ExmRegistryIndex, ExmRegistryRemoteClient } from '../sources/exm-registry-source.js';
 
 const WORKSPACE_FILE = 'pnpm-workspace.yaml';
 const DEPLOY_DIR_NAME = '.deploy';
@@ -35,16 +35,50 @@ export interface DeployExtensionPackageResult {
 
 export interface PublishExtensionPackageOptions extends DeployExtensionPackageOptions {
   readonly dryRun?: boolean;
-  readonly registryClient?: ExmRegistryRemoteClient;
+  readonly registryClient?: ExmRegistryPublishClient;
 }
 
 export interface PublishExtensionPackageResult extends DeployExtensionPackageResult {
   readonly dryRun: boolean;
   readonly registry: string;
-  readonly indexUrl: string;
+  readonly metadataUrl: string;
   readonly artifactUrl: string;
   readonly integrity: string;
   readonly size: number;
+}
+
+export interface ExmRegistryPublishRequest {
+  readonly registry: string;
+  readonly packageName: string;
+  readonly version: string;
+  readonly tarballPath: string;
+  readonly integrity: string;
+  readonly size: number;
+  readonly projectRoot: string;
+}
+
+export interface ExmRegistryPublishPlanRequest {
+  readonly registry: string;
+  readonly packageName: string;
+  readonly version: string;
+  readonly integrity: string;
+  readonly size: number;
+  readonly projectRoot: string;
+}
+
+export interface ExmRegistryPublishResult {
+  readonly packageName: string;
+  readonly version: string;
+  readonly metadataUrl: string;
+  readonly artifactUrl: string;
+  readonly integrity: string;
+  readonly size: number;
+}
+
+export interface ExmRegistryPublishClient {
+  plan(request: ExmRegistryPublishPlanRequest): Promise<ExmRegistryPublishResult>;
+
+  publish(request: ExmRegistryPublishRequest): Promise<ExmRegistryPublishResult>;
 }
 
 export type PublishCommandRunner = (
@@ -55,6 +89,17 @@ export type PublishCommandRunner = (
 
 export interface PublishCommandOptions {
   readonly cwd?: string;
+}
+
+interface NpmRegistryFetchResponse {
+  readonly ok?: boolean;
+  readonly status?: number;
+  readonly statusText?: string;
+  text(): Promise<string>;
+}
+
+interface NpmRegistryFetchModule {
+  (url: string, options?: Record<string, unknown>): Promise<NpmRegistryFetchResponse>;
 }
 
 export async function deployExtensionPackage(
@@ -109,7 +154,7 @@ export async function publishExtensionPackage(
   const deployment = await deployExtensionPackage(options);
   const dryRun = options.dryRun ?? false;
   const registry = await readPackageExmRegistry(deployment.packageRoot);
-  const registryClient = options.registryClient ?? new NpmRegistryFetchRemoteClient();
+  const registryClient = options.registryClient ?? new HttpExmRegistryPublishClient();
   const tempDir = await mkdtemp(path.join(tmpdir(), 'exm-publish-'));
 
   try {
@@ -117,46 +162,38 @@ export async function publishExtensionPackage(
     options.logger?.info(`create ${path.basename(tarballPath)}`);
     await createDeployTarball(deployment.deployDir, tarballPath);
     const artifact = await createSha512IntegrityFromFile(tarballPath);
-    const artifactPath = createExmRegistryArtifactPath(deployment.version);
-    const indexUrl = createExmRegistryIndexUrl(registry, deployment.packageName);
-    const artifactUrl = createExmRegistryArtifactUrl(registry, deployment.packageName, artifactPath);
-    const existingIndexValue = await registryClient.readJson(indexUrl, deployment.packageRoot);
-    const existingIndex = existingIndexValue === undefined
-      ? createEmptyExmRegistryIndex(deployment.packageName)
-      : await normalizeExmRegistryIndex(existingIndexValue, deployment.packageName, indexUrl);
-
-    if (existingIndex.versions[deployment.version] !== undefined) {
-      throw new Error(`exm registry package "${deployment.packageName}" version ${deployment.version} already exists`);
-    }
-
-    const nextIndex = addRegistryVersion(existingIndex, deployment.version, {
-      type: 'tgz',
-      path: artifactPath,
+    const publishRequest = {
+      registry,
+      packageName: deployment.packageName,
+      version: deployment.version,
+      tarballPath,
       integrity: artifact.integrity,
       size: artifact.size,
-    });
+      projectRoot: deployment.packageRoot,
+    };
+    const published = dryRun
+      ? await registryClient.plan(publishRequest)
+      : await registryClient.publish(publishRequest);
 
     if (dryRun) {
-      options.logger?.info(`would upload artifact ${artifactUrl}`);
-      options.logger?.info(`would update index ${indexUrl}`);
+      options.logger?.info(`would publish artifact ${published.artifactUrl}`);
+      options.logger?.info(`would update metadata ${published.metadataUrl}`);
       options.logger?.info(`artifact integrity ${artifact.integrity}`);
       options.logger?.info(`artifact size ${artifact.size}`);
-      options.logger?.info('skip exm registry upload --dry-run');
+      options.logger?.info('skip exm registry publish --dry-run');
     } else {
-      options.logger?.info(`upload ${artifactUrl}`);
-      await registryClient.putFile(artifactUrl, tarballPath, 'application/gzip', deployment.packageRoot);
-      options.logger?.info(`update ${indexUrl}`);
-      await registryClient.putJson(indexUrl, nextIndex, deployment.packageRoot);
+      options.logger?.info(`published artifact ${published.artifactUrl}`);
+      options.logger?.info(`updated metadata ${published.metadataUrl}`);
     }
 
     return {
       ...deployment,
       dryRun,
       registry,
-      indexUrl,
-      artifactUrl,
-      integrity: artifact.integrity,
-      size: artifact.size,
+      metadataUrl: published.metadataUrl,
+      artifactUrl: published.artifactUrl,
+      integrity: published.integrity,
+      size: published.size,
     };
   } finally {
     await rm(tempDir, {
@@ -164,6 +201,89 @@ export async function publishExtensionPackage(
       force: true,
     });
   }
+}
+
+export class HttpExmRegistryPublishClient implements ExmRegistryPublishClient {
+  public async plan(request: ExmRegistryPublishPlanRequest): Promise<ExmRegistryPublishResult> {
+    const response = await this.requestJson(createPublishPlanUrl(request.registry), request.projectRoot, {
+      method: 'POST',
+      body: `${JSON.stringify({
+        name: request.packageName,
+        version: request.version,
+        integrity: request.integrity,
+        size: request.size,
+      })}\n`,
+      headers: {
+        'content-type': 'application/json',
+      },
+    });
+
+    return normalizePublishResult(response, request);
+  }
+
+  public async publish(request: ExmRegistryPublishRequest): Promise<ExmRegistryPublishResult> {
+    const response = await this.requestJson(createPublishUrl(request.registry, request.packageName, request.version), request.projectRoot, {
+      method: 'PUT',
+      body: createReadStream(request.tarballPath),
+      headers: {
+        'content-type': 'application/gzip',
+        'x-exm-integrity': request.integrity,
+        'x-exm-size': String(request.size),
+      },
+    });
+
+    return normalizePublishResult(response, request);
+  }
+
+  private async requestJson(url: string, projectRoot: string, options: Record<string, unknown>): Promise<unknown> {
+    const fetch = await loadNpmRegistryFetch();
+    const config = await loadNpmConfigOptions(projectRoot);
+    const response = await fetch(url, {
+      ...config,
+      ...options,
+    });
+    const text = await response.text();
+
+    if (response.ok === false) {
+      throw new Error(`exm registry request failed for ${url}: ${response.status ?? 'unknown'} ${response.statusText ?? ''} ${text}`.trim());
+    }
+
+    return JSON.parse(text) as unknown;
+  }
+}
+
+function createPublishPlanUrl(registry: string): string {
+  return new URL('-/exm/v1/publish/plan', registry).href;
+}
+
+function createPublishUrl(registry: string, packageName: string, version: string): string {
+  const url = new URL('-/exm/v1/publish', registry);
+  url.searchParams.set('name', packageName);
+  url.searchParams.set('version', version);
+
+  return url.href;
+}
+
+function normalizePublishResult(value: unknown, request: ExmRegistryPublishPlanRequest): ExmRegistryPublishResult {
+  if (!isRecord(value)) {
+    throw new Error('exm registry publish response must be an object');
+  }
+
+  const packageName = readResultString(value.packageName, 'packageName');
+  const version = readResultString(value.version, 'version');
+
+  if (packageName !== request.packageName || version !== request.version) {
+    throw new Error(`exm registry publish response returned unexpected package ${packageName}@${version}`);
+  }
+
+  return {
+    packageName,
+    version,
+    metadataUrl: readResultString(value.metadataUrl, 'metadataUrl'),
+    artifactUrl: readResultString(value.artifactUrl, 'artifactUrl'),
+    integrity: readResultString(value.integrity, 'integrity'),
+    size: readResultPositiveInteger(value.size, 'size'),
+  };
 }
 
 async function readPackageExmRegistry(packageRoot: string): Promise<string> {
@@ -180,20 +300,6 @@ async function readPackageExmRegistry(packageRoot: string): Promise<string> {
   }
 
   return normalizeExmRegistryUrl(registry, 'package.json exm.registry');
-}
-
-function addRegistryVersion(index: ExmRegistryIndex, version: string, artifact: ExmRegistryIndex['versions'][string]['artifact']): ExmRegistryIndex {
-  return {
-    schemaVersion: 1,
-    name: index.name,
-    versions: Object.fromEntries(Object.entries({
-      ...index.versions,
-      [version]: {
-        version,
-        artifact,
-      },
-    }).sort(([left], [right]) => left.localeCompare(right))),
-  };
 }
 
 async function validateDeployPackageJson(deployDir: string, packageName: string): Promise<JsonObject> {
@@ -332,6 +438,22 @@ function readRequiredString(packageJson: JsonObject, key: string, label: string)
   return value;
 }
 
+function readResultString(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`exm registry publish response ${label} must be a non-empty string`);
+  }
+
+  return value;
+}
+
+function readResultPositiveInteger(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+    throw new Error(`exm registry publish response ${label} must be a positive integer`);
+  }
+
+  return value;
+}
+
 function createTarballFileName(packageName: string, version: string): string {
   return `${packageName.replace(/^@/, '').replaceAll('/', '-')}-${version}.tgz`;
 }
@@ -348,6 +470,12 @@ function normalizeTarEntryName(entryName: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+async function loadNpmRegistryFetch(): Promise<NpmRegistryFetchModule> {
+  const registryFetch = await import('npm-registry-fetch') as { readonly default?: NpmRegistryFetchModule } & NpmRegistryFetchModule;
+
+  return registryFetch.default ?? registryFetch;
 }
 
 async function runCommandWithInheritedStdio(

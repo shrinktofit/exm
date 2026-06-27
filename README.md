@@ -1,6 +1,6 @@
 # exm
 
-`exm` is a small Cocos Creator extension manager. It installs project extensions into the fixed `extensions/` directory and can publish pnpm-deployed extension artifacts to an exm Raw registry such as Nexus Raw.
+`exm` is a small Cocos Creator extension manager. It installs project extensions into the fixed `extensions/` directory and publishes pnpm-deployed extension artifacts through an exm registry server.
 
 ## Development
 
@@ -8,17 +8,19 @@
 pnpm install
 pnpm --filter @feb/exm build
 pnpm --filter @feb/exm test
-pnpm exec eslint packages/exm/src/*.ts packages/exm/src/**/*.ts packages/exm/test/*.ts
+pnpm --filter @feb/exm-registry-server build
+pnpm --filter @feb/exm-registry-server test
+pnpm exec eslint packages/exm/src/*.ts packages/exm/src/**/*.ts packages/exm/test/*.ts packages/exm-registry-server/src/*.ts packages/exm-registry-server/test/*.ts
 ```
 
 ## Installing Extensions
 
-Add exm config to the Cocos Creator project `package.json`:
+Add exm config to the Cocos Creator project `package.json`. The registry is the public exm registry server URL, not a Nexus Raw repository URL:
 
 ```json
 {
   "exm": {
-    "registry": "http://nexus.example/repository/exm-registry/",
+    "registry": "https://exm.example/",
     "dependencies": {
       "addressable-assets": "exm:@feb/extension-addressable-assets@^0.0.1",
       "local-tool": "link:../local-tool",
@@ -49,7 +51,7 @@ Dependency keys are extension ids and must be single directory names. Installed 
 
 ## Publishing Extensions
 
-`exm publish` publishes to the exm Raw registry from `package.json#exm.registry`. It does not publish to npm.
+`exm publish` reads the exm registry server from `package.json#exm.registry`. It still deploys and packs locally, but the registry server owns artifact upload and package metadata updates.
 
 From either the workspace root or the target package root:
 
@@ -64,18 +66,59 @@ Publish flow:
 1. Clean and regenerate `<target-package>/.deploy` with `pnpm deploy`.
 2. Validate `.deploy/package.json` name and version.
 3. Create a complete `extension.tgz` from `.deploy`, including `node_modules`.
-4. Upload `extension.tgz` and update the package `index.json` in the Raw registry.
+4. Call the registry server publish API. The CLI does not write Nexus package metadata or indexes directly.
 
-Dry-run performs deploy, packaging, hashing, and index validation, but does not upload anything. It prints the artifact URL, index URL, integrity, and size.
+Dry-run performs deploy, packaging, hashing, and server-side publish planning, but does not upload anything. It prints the artifact URL, metadata URL, integrity, and size.
+
+## Registry Server
+
+The server package is `@feb/exm-registry-server` in `packages/exm-registry-server`. It exposes npm-compatible read endpoints and a small exm publish API:
+
+```text
+GET  /@scope%2fpkg
+GET  /@scope/pkg
+GET  /@scope/pkg/<version>/extension.tgz
+GET  /-/v1/search?text=...
+GET  /-/all
+POST /-/exm/v1/publish/plan
+PUT  /-/exm/v1/publish?name=@scope/pkg&version=1.2.3
+```
+
+The package metadata response includes npm-compatible `name`, `versions`, `dist.tarball`, and `dist.integrity`, plus `exm.artifact` metadata with `type`, `path`, `integrity`, and `size`.
+
+Server configuration can live in YAML. The server auto-loads `exm-registry-server.yaml` or `exm-registry-server.yml` from the current directory, or you can pass `--config <path>`:
+
+```yaml
+publicUrl: http://exm.bluesquall.local/
+
+listen:
+  host: 0.0.0.0
+  port: 4873
+
+nexus:
+  baseUrl: http://nexus.bluesquall.local/
+  metadataRepository: exm-registry
+  artifactRepository: exm-artifacts
+  username: exm-publisher
+```
+
+Start it after building:
+
+```bash
+pnpm --filter @feb/exm-registry-server build
+pnpm --filter @feb/exm-registry-server start -- --config packages/exm-registry-server/exm-registry-server.example.yaml
+```
+
+Environment variables override YAML values. Use them for secrets and deployment-specific overrides:
+
+```bash
+EXM_NEXUS_PASSWORD=...
+# or EXM_NEXUS_TOKEN=...
+EXM_REGISTRY_SERVER_CONFIG=/etc/exm/exm-registry-server.yaml
+```
+
+The server stores package metadata/search documents in the metadata repository and `extension.tgz` artifacts in the artifact repository. Publish uses an in-memory per-package lock, so v1 protects single server instances from same-package lost updates. Multi-instance deployments should add a shared lock or conditional-write backend. If artifact upload succeeds but metadata update fails, v1 may leave an orphan artifact in the artifact repository.
 
 ## Registry Auth
 
-Raw registry reads may be anonymous, but publishing usually needs write auth. Configure it with `.npmrc`:
-
-```ini
-//nexus.example/repository/exm-registry/:username=exm-publisher
-//nexus.example/repository/exm-registry/:_password=<base64-password>
-//nexus.example/repository/exm-registry/:always-auth=true
-```
-
-For Nexus Raw, the publish user needs browse/read/add/edit permissions on the Raw repository because publish uploads a new artifact and updates `index.json`.
+Clients authenticate to the exm registry server URL if needed. The server authenticates to Nexus using its environment variables, so normal clients do not need Nexus Raw repository URLs in their exm config.

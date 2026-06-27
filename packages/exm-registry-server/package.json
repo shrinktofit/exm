@@ -1,0 +1,30 @@
+{
+  "name": "@feb/exm-registry-server",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./lib/index.js"
+  },
+  "bin": {
+    "exm-registry-server": "./bin/exm-registry-server.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node ./bin/exm-registry-server.js",
+    "test": "node --run test:compile && node --run t",
+    "test:compile": "tsc -b test/tsconfig.json",
+    "t": "vitest run"
+  },
+  "dependencies": {
+    "fastify": "^5.6.2",
+    "semver": "^7.7.2",
+    "yaml": "^2.8.0"
+  },
+  "devDependencies": {
+    "@feb/workflow": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

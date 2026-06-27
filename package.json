@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm --filter @feb/exm build",
-    "test": "pnpm --filter @feb/exm test",
-    "lint": "eslint packages/exm/src/*.ts packages/exm/src/**/*.ts packages/exm/test/*.ts"
+    "build": "pnpm --filter @feb/exm build && pnpm --filter @feb/exm-registry-server build",
+    "test": "pnpm --filter @feb/exm test && pnpm --filter @feb/exm-registry-server test",
+    "lint": "eslint packages/exm/src/*.ts packages/exm/src/**/*.ts packages/exm/test/*.ts packages/exm-registry-server/src/*.ts packages/exm-registry-server/test/*.ts"
   },
   "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319",
   "devDependencies": {

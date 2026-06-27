@@ -11,17 +11,21 @@ export type {
 } from './installer/extension-installer.js';
 export { EXM_LOCAL_LOCK_FILE, EXM_LOCK_FILE, createExmLockEntry, getExmLockPath, loadExmLock, saveExmLock } from './lock/exm-lock.js';
 export type { ExmLockExtension, ExmLockFile } from './lock/exm-lock.js';
-export { deployExtensionPackage, publishExtensionPackage } from './publisher/extension-publisher.js';
+export { HttpExmRegistryPublishClient, deployExtensionPackage, publishExtensionPackage } from './publisher/extension-publisher.js';
 export type {
   DeployExtensionPackageOptions,
   DeployExtensionPackageResult,
+  ExmRegistryPublishClient,
+  ExmRegistryPublishPlanRequest,
+  ExmRegistryPublishRequest,
+  ExmRegistryPublishResult,
   PublishCommandOptions,
   PublishCommandRunner,
   PublishExtensionPackageOptions,
   PublishExtensionPackageResult,
 } from './publisher/extension-publisher.js';
-export { ExmRegistrySource, HttpExmRegistryClient, NpmRegistryFetchRemoteClient, SemverExmVersionRange, createEmptyExmRegistryIndex, createExmRegistryArtifactPath, createExmRegistryArtifactUrl, createExmRegistryIndexUrl, createSha512IntegrityFromBuffer, createSha512IntegrityFromFile, normalizeExmRegistryIndex, normalizeExmRegistryUrl, parseExmRegistrySpecifier } from './sources/exm-registry-source.js';
-export type { DownloadedArtifact, ExmRegistryArtifact, ExmRegistryClient, ExmRegistryIndex, ExmRegistryPackageRequest, ExmRegistryRemoteClient, ExmRegistrySpecifier, ExmRegistryVersion, ExmVersionRange } from './sources/exm-registry-source.js';
+export { ExmRegistrySource, HttpExmRegistryClient, NpmRegistryFetchRemoteClient, SemverExmVersionRange, createExmPackageMetadataUrl, createExmRegistryArtifactPath, createSha512IntegrityFromBuffer, createSha512IntegrityFromFile, normalizeExmPackageMetadata, normalizeExmRegistryUrl, parseExmRegistrySpecifier } from './sources/exm-registry-source.js';
+export type { DownloadedArtifact, ExmPackageMetadata, ExmPackageVersionMetadata, ExmRegistryArtifact, ExmRegistryClient, ExmRegistryLockedPackageRequest, ExmRegistryPackageRequest, ExmRegistryRemoteClient, ExmRegistrySpecifier, ExmVersionRange } from './sources/exm-registry-source.js';
 export { GitExtensionSource, createGitCacheKey, parseGitSpecifier } from './sources/git-source.js';
 export type { GitSpecifier, RunCommand, RunCommandOptions } from './sources/git-source.js';
 export { LinkExtensionSource } from './sources/link-source.js';
