@@ -15,7 +15,7 @@ pnpm exec eslint packages/exm/src/*.ts packages/exm/src/**/*.ts packages/exm/tes
 
 ## Installing Extensions
 
-Add exm config to the Cocos Creator project `package.json`. The registry is the public exm registry server URL, not a Nexus Raw repository URL:
+Add exm config to the Cocos Creator project `package.json`. The registry is the public exm registry server URL:
 
 ```json
 {
@@ -82,17 +82,15 @@ The package metadata response includes npm-compatible `name`, `versions`, `dist.
 Server configuration can live in YAML. The server auto-loads `exm-registry-server.yaml` or `exm-registry-server.yml` from the current directory, or you can pass `--config <path>`:
 
 ```yaml
-publicUrl: http://exm.bluesquall.local/
+publicUrl: http://localhost:4873/
 
 listen:
   host: 0.0.0.0
   port: 4873
 
-nexus:
-  baseUrl: http://nexus.bluesquall.local/
-  metadataRepository: exm-registry
-  artifactRepository: exm-artifacts
-  username: exm-publisher
+storage:
+  kind: file
+  root: /data
 ```
 
 Start it after building:
@@ -102,16 +100,28 @@ pnpm --filter @bsgames/exm-registry-server build
 pnpm --filter @bsgames/exm-registry-server start -- --config packages/exm-registry-server/exm-registry-server.example.yaml
 ```
 
-Environment variables override YAML values. Use them for secrets and deployment-specific overrides:
+Or run it with Docker:
 
 ```bash
-EXM_NEXUS_PASSWORD=...
-# or EXM_NEXUS_TOKEN=...
+docker build -f packages/exm-registry-server/Dockerfile -t bsgames/exm-registry-server:local .
+docker run --rm -p 4873:4873 -v exm-registry-data:/data -e EXM_REGISTRY_PUBLIC_URL=http://localhost:4873/ bsgames/exm-registry-server:local
+# or
+docker compose -f packages/exm-registry-server/docker-compose.example.yml up --build
+```
+
+Environment variables override YAML values:
+
+```bash
+EXM_REGISTRY_PUBLIC_URL=http://localhost:4873/
+EXM_REGISTRY_STORAGE_KIND=file
+EXM_REGISTRY_FILE_ROOT=/data
 EXM_REGISTRY_SERVER_CONFIG=/etc/exm/exm-registry-server.yaml
 ```
 
-The server stores package metadata/search documents in the metadata repository and `extension.tgz` artifacts in the artifact repository. Publish uses an in-memory per-package lock, so v1 protects single server instances from same-package lost updates. Multi-instance deployments should add a shared lock or conditional-write backend. If artifact upload succeeds but metadata update fails, v1 may leave an orphan artifact in the artifact repository.
+File storage writes package metadata and search documents under `<root>/metadata` and `extension.tgz` artifacts under `<root>/artifacts`. v1 is designed for one server process writing one storage root. Nexus Raw remains available as an optional backend by setting `storage.kind: nexus` and the `EXM_NEXUS_*` variables.
+
+Publish uses an in-memory per-package lock, so v1 protects a single server instance from same-package lost updates. If artifact upload succeeds but metadata update fails, v1 may leave an orphan artifact in the artifact storage directory.
 
 ## Registry Auth
 
-Clients authenticate to the exm registry server URL if needed. The server authenticates to Nexus using its environment variables, so normal clients do not need Nexus Raw repository URLs in their exm config.
+Clients authenticate to the exm registry server URL if needed. When file storage is used, the server does not need backend repository credentials. When Nexus storage is configured, the server authenticates to Nexus using its own environment variables, so normal clients still do not need backend repository URLs in their exm config.

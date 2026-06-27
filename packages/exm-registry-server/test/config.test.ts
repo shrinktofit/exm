@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -17,10 +17,10 @@ afterEach(async () => {
 describe('exm registry server config', () => {
   it('should load the default YAML config and route metadata storage to the configured Nexus repository', async () => {
     /// @case
-    /// 1. The working directory contains exm-registry-server.yaml.
-    /// 2. The config defines the public URL, listen address, Nexus repositories, and basic auth.
+    /// 1. The working directory contains exm-registry-server.yaml with legacy Nexus config.
+    /// 2. The config omits storage.kind.
     /// @expect
-    /// The server config loads from YAML and metadata reads target the configured metadata repository.
+    /// The server keeps using Nexus so existing deployments do not silently switch storage backends.
     const cwd = await createTempDir();
     await writeFile(path.join(cwd, 'exm-registry-server.yaml'), `
 publicUrl: https://exm.example.com/
@@ -51,6 +51,34 @@ nexus:
     expect(config.port).toBe(4874);
     expect(requestUrl).toBe('http://nexus.example/repository/exm-metadata/%40feb/extension-feb/index.json');
     expect(authorization).toBe(`Basic ${Buffer.from('user:pass').toString('base64')}`);
+  });
+
+  it('should load file storage from YAML config', async () => {
+    /// @case
+    /// 1. The YAML config selects file storage with a relative root.
+    /// 2. The server writes metadata and artifacts through the configured storage.
+    /// @expect
+    /// Files are stored under metadata and artifacts directories below the configured root.
+    const cwd = await createTempDir();
+    await writeFile(path.join(cwd, 'exm-registry-server.yaml'), `
+publicUrl: https://exm.example.com/
+listen:
+  host: 127.0.0.1
+  port: 4874
+storage:
+  kind: file
+  root: registry-data
+`, 'utf8');
+
+    const config = await loadEnvironmentConfig({ cwd, env: {} });
+    await config.storage.writeMetadataJson('-/search.json', { packages: {} });
+    await config.storage.writeArtifact('%40feb/extension-feb/0.0.81/extension.tgz', Buffer.from('tgz'), 'application/gzip');
+
+    expect(config.publicUrl).toBe('https://exm.example.com/');
+    expect(config.host).toBe('127.0.0.1');
+    expect(config.port).toBe(4874);
+    expect(JSON.parse(await readFile(path.join(cwd, 'registry-data', 'metadata', '-', 'search.json'), 'utf8'))).toEqual({ packages: {} });
+    expect(await readFile(path.join(cwd, 'registry-data', 'artifacts', '%40feb', 'extension-feb', '0.0.81', 'extension.tgz'), 'utf8')).toBe('tgz');
   });
 
   it('should let environment variables override YAML config values', async () => {
@@ -99,6 +127,28 @@ nexus:
     expect(config.port).toBe(4999);
     expect(requestUrl).toBe('http://env-nexus.example/repository/env-artifacts/%40feb/extension-feb/0.0.81/extension.tgz');
     expect(authorization).toBe('Bearer secret-token');
+  });
+
+  it('should let environment variables select file storage', async () => {
+    /// @case
+    /// 1. No YAML config file exists.
+    /// 2. Environment variables select file storage and provide the data root.
+    /// @expect
+    /// The server uses the environment-defined file root for persistent storage.
+    const cwd = await createTempDir();
+    const root = path.join(cwd, 'env-data');
+    const config = await loadEnvironmentConfig({
+      cwd,
+      env: {
+        EXM_REGISTRY_PUBLIC_URL: 'https://env.example.com/',
+        EXM_REGISTRY_STORAGE_KIND: 'file',
+        EXM_REGISTRY_FILE_ROOT: root,
+      },
+    });
+
+    await config.storage.writeArtifact('%40feb/extension-feb/0.0.81/extension.tgz', Buffer.from('env tgz'), 'application/gzip');
+
+    expect(await readFile(path.join(root, 'artifacts', '%40feb', 'extension-feb', '0.0.81', 'extension.tgz'), 'utf8')).toBe('env tgz');
   });
 });
 

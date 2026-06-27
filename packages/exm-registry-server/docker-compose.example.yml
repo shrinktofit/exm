@@ -1,0 +1,17 @@
+services:
+  exm-registry-server:
+    image: bsgames/exm-registry-server:local
+    build:
+      context: ../..
+      dockerfile: packages/exm-registry-server/Dockerfile
+    ports:
+      - "4873:4873"
+    environment:
+      EXM_REGISTRY_PUBLIC_URL: http://localhost:4873/
+      EXM_REGISTRY_STORAGE_KIND: file
+      EXM_REGISTRY_FILE_ROOT: /data
+    volumes:
+      - exm-registry-data:/data
+
+volumes:
+  exm-registry-data:

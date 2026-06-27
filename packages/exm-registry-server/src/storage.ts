@@ -1,4 +1,8 @@
 import { Buffer } from 'node:buffer';
+import { randomUUID } from 'node:crypto';
+import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
+import path from 'node:path';
+import process from 'node:process';
 import { normalizeRegistryUrl } from './model.js';
 
 export interface RegistryStorage {
@@ -6,6 +10,10 @@ export interface RegistryStorage {
   writeMetadataJson(path: string, value: unknown): Promise<void>;
   readArtifact(path: string): Promise<Buffer | undefined>;
   writeArtifact(path: string, value: Buffer, contentType: string): Promise<void>;
+}
+
+export interface FileRegistryStorageOptions {
+  readonly root: string;
 }
 
 export interface NexusRawStorageOptions {
@@ -23,6 +31,57 @@ interface FetchResponseLike {
   readonly statusText: string;
   text(): Promise<string>;
   arrayBuffer(): Promise<ArrayBuffer>;
+}
+
+export class FileRegistryStorage implements RegistryStorage {
+  private readonly metadataRoot: string;
+  private readonly artifactRoot: string;
+
+  public constructor(options: FileRegistryStorageOptions) {
+    const root = path.resolve(options.root);
+    this.metadataRoot = path.join(root, 'metadata');
+    this.artifactRoot = path.join(root, 'artifacts');
+  }
+
+  public async readMetadataJson(storagePath: string): Promise<unknown | undefined> {
+    const filePath = createStorageFilePath(this.metadataRoot, storagePath);
+
+    try {
+      const content = await readFile(filePath, 'utf8');
+
+      try {
+        return JSON.parse(content) as unknown;
+      } catch (error) {
+        throw new Error(`Failed to parse registry metadata JSON at ${storagePath}`, { cause: error });
+      }
+    } catch (error) {
+      if (isNodeError(error) && error.code === 'ENOENT') {
+        return undefined;
+      }
+
+      throw error;
+    }
+  }
+
+  public async writeMetadataJson(storagePath: string, value: unknown): Promise<void> {
+    await writeFileAtomically(createStorageFilePath(this.metadataRoot, storagePath), Buffer.from(`${JSON.stringify(value, null, 2)}\n`));
+  }
+
+  public async readArtifact(storagePath: string): Promise<Buffer | undefined> {
+    try {
+      return await readFile(createStorageFilePath(this.artifactRoot, storagePath));
+    } catch (error) {
+      if (isNodeError(error) && error.code === 'ENOENT') {
+        return undefined;
+      }
+
+      throw error;
+    }
+  }
+
+  public async writeArtifact(storagePath: string, value: Buffer, _contentType: string): Promise<void> {
+    await writeFileAtomically(createStorageFilePath(this.artifactRoot, storagePath), value);
+  }
 }
 
 export class NexusRawStorage implements RegistryStorage {
@@ -134,6 +193,57 @@ function assertOk(response: FetchResponseLike, path: string): void {
   if (!response.ok) {
     throw new Error(`Nexus Raw request failed for ${path}: ${response.status} ${response.statusText}`);
   }
+}
+
+function createStorageFilePath(root: string, storagePath: string): string {
+  const parts = parseStoragePath(storagePath);
+  const filePath = path.resolve(root, ...parts);
+  const relativePath = path.relative(root, filePath);
+
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    throw new Error(`Invalid registry storage path: ${storagePath}`);
+  }
+
+  return filePath;
+}
+
+function parseStoragePath(storagePath: string): string[] {
+  if (storagePath.length === 0 || storagePath.includes('\\') || storagePath.includes('\0') || path.isAbsolute(storagePath) || path.win32.isAbsolute(storagePath)) {
+    throw new Error(`Invalid registry storage path: ${storagePath}`);
+  }
+
+  const parts = storagePath.split('/');
+
+  if (parts.some((part) => part.length === 0 || part === '.' || part === '..')) {
+    throw new Error(`Invalid registry storage path: ${storagePath}`);
+  }
+
+  return parts;
+}
+
+async function writeFileAtomically(filePath: string, value: Buffer): Promise<void> {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  const tempPath = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.${randomUUID()}.tmp`);
+
+  try {
+    const handle = await open(tempPath, 'w');
+
+    try {
+      await handle.writeFile(value);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+
+    await rename(tempPath, filePath);
+  } catch (error) {
+    await rm(tempPath, { force: true });
+    throw error;
+  }
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error;
 }
 
 function cloneJson<T>(value: T): T {

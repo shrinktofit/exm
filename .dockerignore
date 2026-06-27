@@ -1,0 +1,14 @@
+.git
+.github
+.agents
+.codex
+node_modules
+packages/*/node_modules
+packages/*/lib
+packages/*/test/lib
+*.log
+npm-debug.log*
+pnpm-debug.log*
+*.tsbuildinfo
+packages/*/*.tsbuildinfo
+packages/*/test/*.tsbuildinfo

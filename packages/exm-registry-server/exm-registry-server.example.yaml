@@ -1,12 +1,19 @@
-publicUrl: http://exm.bluesquall.local/
+publicUrl: http://localhost:4873/
 
 listen:
   host: 0.0.0.0
   port: 4873
 
-nexus:
-  baseUrl: http://nexus.bluesquall.local/
-  metadataRepository: exm-registry
-  artifactRepository: exm-artifacts
-  username: exm-publisher
-  # Prefer EXM_NEXUS_PASSWORD or EXM_NEXUS_TOKEN for secrets.
+storage:
+  kind: file
+  root: /data
+
+# Optional Nexus Raw backend. Keep storage.kind set to nexus when using it.
+# storage:
+#   kind: nexus
+# nexus:
+#   baseUrl: http://nexus.bluesquall.local/
+#   metadataRepository: exm-registry
+#   artifactRepository: exm-artifacts
+#   username: exm-publisher
+#   # Prefer EXM_NEXUS_PASSWORD or EXM_NEXUS_TOKEN for secrets.

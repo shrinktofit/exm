@@ -27,5 +27,5 @@ export type {
 } from './model.js';
 export { createExmRegistryServer, createPublishPlan, readPackageDocument } from './server.js';
 export type { ExmRegistryServerOptions } from './server.js';
-export { MemoryRegistryStorage, NexusRawStorage } from './storage.js';
-export type { NexusRawStorageOptions, RegistryStorage } from './storage.js';
+export { FileRegistryStorage, MemoryRegistryStorage, NexusRawStorage } from './storage.js';
+export type { FileRegistryStorageOptions, NexusRawStorageOptions, RegistryStorage } from './storage.js';

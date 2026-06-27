@@ -1,6 +1,9 @@
 import { Buffer } from 'node:buffer';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createExmRegistryServer, createPackageStoragePath, createSha512Integrity, MemoryRegistryStorage } from '../src/index.js';
+import { createExmRegistryServer, createPackageStoragePath, createSha512Integrity, FileRegistryStorage, MemoryRegistryStorage, type RegistryStorage } from '../src/index.js';
 import type { FastifyInstance } from 'fastify';
 
 interface TestPackageMetadata {
@@ -19,10 +22,13 @@ interface TestPackageMetadata {
 }
 
 const apps: FastifyInstance[] = [];
+const tempDirs: string[] = [];
 
 afterEach(async () => {
   await Promise.all(apps.map(async (app) => app.close()));
   apps.length = 0;
+  await Promise.all(tempDirs.map(async (tempDir) => rm(tempDir, { recursive: true, force: true })));
+  tempDirs.length = 0;
 });
 
 describe('exm registry server', () => {
@@ -134,6 +140,41 @@ describe('exm registry server', () => {
     expect(Object.keys(JSON.parse(all.body) as Record<string, unknown>)).toEqual(['@feb/extension-feb']);
   });
 
+  it('should persist published packages through file storage', async () => {
+    /// @case
+    /// 1. A package is published through the registry server using file storage.
+    /// 2. A new server instance starts with the same file storage root.
+    /// @expect
+    /// Metadata, search data, and artifact bytes remain available from the persistent data directory.
+    const root = await createTempDir();
+    const app = createApp(new FileRegistryStorage({ root }));
+    await publish(app, '@feb/extension-feb', '0.0.81');
+
+    expect(await readFile(path.join(root, 'artifacts', '%40feb', 'extension-feb', '0.0.81', 'extension.tgz'), 'utf8')).toBe('@feb/extension-feb@0.0.81');
+    expect(JSON.parse(await readFile(path.join(root, 'metadata', '%40feb', 'extension-feb', 'index.json'), 'utf8'))).toMatchObject({
+      name: '@feb/extension-feb',
+      versions: {
+        '0.0.81': {},
+      },
+    });
+    expect(JSON.parse(await readFile(path.join(root, 'metadata', '-', 'search.json'), 'utf8'))).toMatchObject({
+      packages: {
+        '@feb/extension-feb': {
+          version: '0.0.81',
+        },
+      },
+    });
+
+    const reloadedApp = createApp(new FileRegistryStorage({ root }));
+    const metadata = await reloadedApp.inject({ method: 'GET', url: '/@feb/extension-feb' });
+    const artifact = await reloadedApp.inject({ method: 'GET', url: '/@feb/extension-feb/0.0.81/extension.tgz' });
+
+    expect(metadata.statusCode).toBe(200);
+    expect(Object.keys((JSON.parse(metadata.body) as TestPackageMetadata).versions)).toEqual(['0.0.81']);
+    expect(artifact.statusCode).toBe(200);
+    expect(artifact.body).toBe('@feb/extension-feb@0.0.81');
+  });
+
   it('should reject duplicate package versions', async () => {
     /// @case
     /// 1. A package version has already been published.
@@ -171,7 +212,7 @@ describe('exm registry server', () => {
   });
 });
 
-function createApp(storage: MemoryRegistryStorage): FastifyInstance {
+function createApp(storage: RegistryStorage): FastifyInstance {
   const app = createExmRegistryServer({
     publicUrl: 'https://exm.example.com/',
     storage,
@@ -179,6 +220,13 @@ function createApp(storage: MemoryRegistryStorage): FastifyInstance {
   apps.push(app);
 
   return app;
+}
+
+async function createTempDir(): Promise<string> {
+  const tempDir = await mkdtemp(path.join(tmpdir(), 'exm-registry-server-'));
+  tempDirs.push(tempDir);
+
+  return tempDir;
 }
 
 async function publish(app: FastifyInstance, packageName: string, version: string) {
