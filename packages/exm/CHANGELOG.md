@@ -1,5 +1,11 @@
 # @bsgames/exm
 
+## 0.0.7
+
+### Patch Changes
+
+- b814a29: Add `exm publish --registry <url>` to override package-level registry configuration.
+
 ## 0.0.6
 
 ### Patch Changes
