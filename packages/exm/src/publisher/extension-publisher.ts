@@ -35,6 +35,7 @@ export interface DeployExtensionPackageResult {
 
 export interface PublishExtensionPackageOptions extends DeployExtensionPackageOptions {
   readonly dryRun?: boolean;
+  readonly registry?: string;
   readonly registryClient?: ExmRegistryPublishClient;
 }
 
@@ -153,7 +154,7 @@ export async function publishExtensionPackage(
 ): Promise<PublishExtensionPackageResult> {
   const deployment = await deployExtensionPackage(options);
   const dryRun = options.dryRun ?? false;
-  const registry = await readPackageExmRegistry(deployment.packageRoot);
+  const registry = await resolvePublishRegistry(deployment.packageRoot, options.registry);
   const registryClient = options.registryClient ?? new HttpExmRegistryPublishClient();
   const tempDir = await mkdtemp(path.join(tmpdir(), 'exm-publish-'));
 
@@ -300,6 +301,20 @@ async function readPackageExmRegistry(packageRoot: string): Promise<string> {
   }
 
   return normalizeExmRegistryUrl(registry, 'package.json exm.registry');
+}
+
+async function resolvePublishRegistry(packageRoot: string, registry: string | undefined): Promise<string> {
+  if (registry !== undefined) {
+    const trimmed = registry.trim();
+
+    if (trimmed.length === 0) {
+      throw new Error('publish --registry must be a non-empty URL');
+    }
+
+    return normalizeExmRegistryUrl(trimmed, 'publish --registry');
+  }
+
+  return await readPackageExmRegistry(packageRoot);
 }
 
 async function validateDeployPackageJson(deployDir: string, packageName: string): Promise<JsonObject> {

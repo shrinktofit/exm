@@ -167,6 +167,76 @@ describe('publishExtensionPackage', () => {
     expect(registryClient.tarballEntryTypes.get('package/node_modules/@feb/runtime/linked.js')).toBe('File');
   });
 
+  it('should use a command-line registry override instead of package.json exm.registry', async () => {
+    /// @case
+    /// 1. A package declares one exm.registry in package.json.
+    /// 2. exm publish receives a different registry option from the command line.
+    /// @expect
+    /// Publishing sends the request to the command-line registry after URL normalization.
+    const { packageRoot } = await createWorkspace('@feb/extension-sample');
+    const fake = createFakePublishCommands('@feb/extension-sample', '1.2.3');
+    const registryClient = new FakeRegistryPublishClient();
+
+    const result = await publishExtensionPackage({
+      packageName: '@feb/extension-sample',
+      cwd: packageRoot,
+      registry: 'https://override.example.com/exm',
+      dryRun: true,
+      commandRunner: fake.runner,
+      registryClient,
+    });
+
+    expect(result.registry).toBe('https://override.example.com/exm/');
+    expect(result.metadataUrl).toBe('https://override.example.com/exm/%40feb/extension-sample');
+    expect(registryClient.plans).toHaveLength(1);
+    expect(registryClient.plans[0]?.registry).toBe('https://override.example.com/exm/');
+  });
+
+  it('should allow a command-line registry when package.json has no exm.registry', async () => {
+    /// @case
+    /// 1. The target package does not declare package.json exm.registry.
+    /// 2. exm publish receives a registry option from the command line.
+    /// @expect
+    /// Publishing uses the command-line registry and does not require package-level registry config.
+    const { packageRoot } = await createWorkspace('@feb/extension-sample', { registry: false });
+    const fake = createFakePublishCommands('@feb/extension-sample', '1.2.3');
+    const registryClient = new FakeRegistryPublishClient();
+
+    await expect(publishExtensionPackage({
+      packageName: '@feb/extension-sample',
+      cwd: packageRoot,
+      registry: 'https://override.example.com/exm/',
+      dryRun: true,
+      commandRunner: fake.runner,
+      registryClient,
+    })).resolves.toMatchObject({
+      registry: 'https://override.example.com/exm/',
+    });
+    expect(registryClient.plans[0]?.registry).toBe('https://override.example.com/exm/');
+  });
+
+  it('should reject an invalid command-line registry override', async () => {
+    /// @case
+    /// 1. exm publish receives a non-http registry option from the command line.
+    /// 2. The target package otherwise has a valid package.json exm.registry.
+    /// @expect
+    /// Publishing rejects the command-line registry before contacting the registry server.
+    const { packageRoot } = await createWorkspace('@feb/extension-sample');
+    const fake = createFakePublishCommands('@feb/extension-sample', '1.2.3');
+    const registryClient = new FakeRegistryPublishClient();
+
+    await expect(publishExtensionPackage({
+      packageName: '@feb/extension-sample',
+      cwd: packageRoot,
+      registry: 'file:///tmp/exm',
+      dryRun: true,
+      commandRunner: fake.runner,
+      registryClient,
+    })).rejects.toThrow('publish --registry must be an http or https URL');
+    expect(registryClient.plans).toEqual([]);
+    expect(registryClient.publishes).toEqual([]);
+  });
+
   it('should publish prerelease packages as plain exm registry versions', async () => {
     /// @case
     /// 1. pnpm deploy produces a prerelease package version such as 0.0.1-alpha.1.

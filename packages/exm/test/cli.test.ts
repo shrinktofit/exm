@@ -88,17 +88,18 @@ describe('main', () => {
     expect(output).not.toContain('--dry-run');
   });
 
-  it('should print publish command help with dry-run', async () => {
+  it('should print publish command help with dry-run and registry override', async () => {
     /// @case
     /// 1. A user requests publish command help.
-    /// 2. publish supports npm dry-run mode.
+    /// 2. publish supports dry-run mode and an explicit registry override.
     /// @expect
-    /// Help shows the required package argument and dry-run option.
+    /// Help shows the required package argument, dry-run option, and registry option.
     await expect(main(['publish', '--help'])).resolves.toBe(0);
 
     const output = logMessages.join('\n');
     expect(output).toContain('exm publish <package>');
     expect(output).toContain('--dry-run');
+    expect(output).toContain('--registry');
   });
 
   it('should reject deploy without a package argument', async () => {

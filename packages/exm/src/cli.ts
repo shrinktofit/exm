@@ -24,6 +24,7 @@ export interface DeployCommandOptions {
 
 export interface PublishCommandOptions extends DeployCommandOptions {
   readonly dryRun?: boolean;
+  readonly registry?: string;
 }
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
@@ -142,6 +143,10 @@ function configurePublishCommand(argv: Argv): Argv<PublishCommandOptions> {
       describe: 'Run deploy and registry validation without uploading to the exm registry',
       type: 'boolean',
       default: false,
+    })
+    .option('registry', {
+      describe: 'Override package.json exm.registry for this publish',
+      type: 'string',
     });
 }
 
@@ -226,6 +231,7 @@ async function runPublishCommand(args: ArgumentsCamelCase<PublishCommandOptions>
   const result = await publishExtensionPackage({
     packageName: args.package,
     dryRun: args.dryRun,
+    registry: args.registry,
     logger: console,
   });
 
