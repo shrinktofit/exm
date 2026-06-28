@@ -34,7 +34,7 @@ describe('installProjectExtensions npm source', () => {
     const client = new FakeNpmPackageClient([createNpmResolution('1.2.3')]);
     const registry = createNpmRegistry(client);
 
-    const result = await installProjectExtensions({ projectRoot, registry });
+    const result = await installProjectExtensions({ projectRoot, registry, cacheRoot: path.join(workspace, 'cache') });
     const targetPath = path.join(projectRoot, 'extensions', 'company-tool');
     const lockContent = parse(await readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')) as {
       readonly lockFileVersion: number;
@@ -50,11 +50,14 @@ describe('installProjectExtensions npm source', () => {
     };
 
     expect(result.installed).toEqual([
-      {
+      expect.objectContaining({
         id: 'company-tool',
         path: targetPath,
         mode: 'copy',
-      },
+        cache: expect.objectContaining({
+          hit: false,
+        }),
+      }),
     ]);
     await expect(readFile(path.join(targetPath, 'package.json'), 'utf8')).resolves.toContain('@company/tool');
     expect(lockContent.lockFileVersion).toBe(1);
@@ -101,15 +104,18 @@ describe('installProjectExtensions npm source', () => {
     const client = new FakeNpmPackageClient([]);
     const registry = createNpmRegistry(client);
 
-    const result = await installProjectExtensions({ projectRoot, registry });
+    const result = await installProjectExtensions({ projectRoot, registry, cacheRoot: path.join(workspace, 'cache') });
 
     expect(client.requests).toEqual([]);
     expect(result.installed).toEqual([
-      {
+      expect.objectContaining({
         id: 'company-tool',
         path: path.join(projectRoot, 'extensions', 'company-tool'),
         mode: 'copy',
-      },
+        cache: expect.objectContaining({
+          hit: false,
+        }),
+      }),
     ]);
     await expect(readFile(path.join(projectRoot, 'extensions', 'company-tool', 'package.json'), 'utf8')).resolves.toContain('1.2.3');
   });
@@ -154,17 +160,20 @@ describe('updateProjectExtensions npm source', () => {
     const client = new FakeNpmPackageClient([createNpmResolution('1.2.4')]);
     const registry = createNpmRegistry(client);
 
-    const result = await updateProjectExtensions({ projectRoot, registry });
+    const result = await updateProjectExtensions({ projectRoot, registry, cacheRoot: path.join(workspace, 'cache') });
     const lockContent = parse(await readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')) as {
       readonly extensions: Record<string, { readonly resolution?: { readonly version?: string } }>;
     };
 
     expect(result.updated).toEqual([
-      {
+      expect.objectContaining({
         id: 'company-tool',
         path: targetPath,
         mode: 'copy',
-      },
+        cache: expect.objectContaining({
+          hit: false,
+        }),
+      }),
     ]);
     await expect(readFile(path.join(targetPath, 'package.json'), 'utf8')).resolves.toContain('1.2.4');
     expect(lockContent.extensions['company-tool']?.resolution?.version).toBe('1.2.4');
@@ -208,7 +217,7 @@ describe('updateProjectExtensions npm source', () => {
     const client = new FakeNpmPackageClient([]);
     const registry = createNpmRegistry(client);
 
-    const result = await updateProjectExtensions({ projectRoot, registry });
+    const result = await updateProjectExtensions({ projectRoot, registry, cacheRoot: path.join(workspace, 'cache') });
 
     expect(client.requests).toEqual([]);
     expect(result.updated).toEqual([]);

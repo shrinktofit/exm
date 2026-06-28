@@ -161,6 +161,14 @@ describe('ExmRegistrySource', () => {
       id: 'company-tool',
       path: path.join(context.installRoot, 'company-tool'),
       mode: 'copy',
+      cache: {
+        path: resolved.sourcePath,
+        hit: false,
+      },
+      timing: {
+        cachePopulateMs: expect.any(Number),
+        cacheCopyMs: expect.any(Number),
+      },
     });
     expect(client.extracts).toEqual([
       {
@@ -170,6 +178,17 @@ describe('ExmRegistrySource', () => {
       },
     ]);
     await expect(readFile(path.join(materialized.path, 'package.json'), 'utf8')).resolves.toContain('@company/tool');
+
+    const cachedMaterialized = await source.materialize(resolved, context);
+
+    expect(cachedMaterialized.cache).toEqual({
+      path: resolved.sourcePath,
+      hit: true,
+    });
+    expect(cachedMaterialized.timing).toEqual({
+      cacheCopyMs: expect.any(Number),
+    });
+    expect(client.extracts).toHaveLength(1);
   });
 });
 

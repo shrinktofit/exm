@@ -62,6 +62,20 @@ export interface MaterializedExtension {
   readonly path: string;
   readonly mode: 'clone' | 'link' | 'copy';
   readonly git?: MaterializedGitExtension;
+  readonly cache?: MaterializedExtensionCache;
+  readonly timing?: MaterializedExtensionTiming;
+}
+
+export interface MaterializedExtensionCache {
+  readonly path: string;
+  readonly hit: boolean;
+}
+
+export interface MaterializedExtensionTiming {
+  readonly cachePopulateMs?: number;
+  readonly cacheCopyMs?: number;
+  readonly gitSyncMs?: number;
+  readonly linkMs?: number;
 }
 
 export interface MaterializedGitExtension {

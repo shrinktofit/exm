@@ -5,6 +5,8 @@ import { EXM_INSTALL_DIR, loadProjectConfig } from '../config/project-config.js'
 import { assertPathInside, pathExists } from '../fs/path.js';
 import { EXM_LOCAL_LOCK_FILE, createExmLockEntry, loadExmLock, saveExmLock } from '../lock/exm-lock.js';
 import { createDefaultSourceRegistry, ExtensionSourceRegistry } from '../sources/registry.js';
+import { elapsedMs, formatDurationMs, nowMs } from '../timing.js';
+import { resolveExmCacheRoot } from './cache-root.js';
 import type { ExmLockExtension, ExmLockFile } from '../lock/exm-lock.js';
 import type { MaterializedExtension, ResolvedExtension, SourceContext } from '../sources/source.js';
 
@@ -15,6 +17,7 @@ export interface ExmLogger {
 export interface InstallProjectExtensionsOptions {
   readonly projectRoot?: string;
   readonly cwd?: string;
+  readonly cacheRoot?: string;
   readonly registry?: ExtensionSourceRegistry;
   readonly logger?: ExmLogger;
 }
@@ -33,6 +36,13 @@ export interface UpdateProjectExtensionsResult {
   readonly updated: readonly MaterializedExtension[];
   readonly adopted: readonly MaterializedExtension[];
   readonly skipped: readonly string[];
+}
+
+interface MaterializePhaseTiming {
+  readonly resolveMs: number;
+  readonly removeMs?: number;
+  readonly materializeMs: number;
+  readonly totalMs: number;
 }
 
 export async function installProjectExtensions(
@@ -64,7 +74,7 @@ export async function installProjectExtensions(
     };
   }
 
-  const cacheRoot = path.join(config.projectRoot, '.exm', 'cache');
+  const cacheRoot = resolveExmCacheRoot(config.projectRoot, options.cacheRoot);
   const registry = options.registry ?? createDefaultSourceRegistry();
   const sourceContext: SourceContext = {
     projectRoot: config.projectRoot,
@@ -79,12 +89,16 @@ export async function installProjectExtensions(
   await mkdir(installRoot, { recursive: true });
 
   for (const [id, spec] of Object.entries(config.dependencies)) {
+    const dependencyStartMs = nowMs();
     const targetPath = path.join(installRoot, id);
     assertPathInside(installRoot, targetPath, `extension target for "${id}"`);
 
     const lockEntry = lock.extensions[id];
     const source = registry.getSource(spec);
+    const resolveStartMs = nowMs();
     const resolved = await source.resolve({ id, spec, previous: lockEntry }, sourceContext);
+    const resolveMs = elapsedMs(resolveStartMs);
+    let removeMs: number | undefined;
     const targetExists = await pathExists(targetPath);
 
     if (targetExists) {
@@ -98,27 +112,43 @@ export async function installProjectExtensions(
           continue;
         }
 
-        await removeManagedTarget(installRoot, targetPath, id);
+        removeMs = await removeManagedTargetWithTiming(installRoot, targetPath, id, removeMs);
+        const materializeStartMs = nowMs();
         const materialized = await source.materialize(resolved, sourceContext);
+        const materializeMs = elapsedMs(materializeStartMs);
+        const phaseTiming = {
+          resolveMs,
+          ...optionalNumberField('removeMs', removeMs),
+          materializeMs,
+          totalMs: elapsedMs(dependencyStartMs),
+        };
         lock.extensions[id] = createExmLockEntry(resolved, materialized);
         installed.push(materialized);
-        options.logger?.info(`reinstalled ${id} from ${resolved.sourceType} -> ${path.relative(config.projectRoot, materialized.path)}`);
+        options.logger?.info(formatMaterializedResult('reinstalled', config.projectRoot, resolved, materialized, phaseTiming));
         continue;
       } else {
         if (lockEntry.spec === spec) {
           skipped.push(id);
-          options.logger?.info(`skipped ${id}; already installed`);
+          options.logger?.info(`${colorText('yellow', 'skipped')} ${id}; already installed`);
           continue;
         }
 
-        await removeManagedTarget(installRoot, targetPath, id);
+        removeMs = await removeManagedTargetWithTiming(installRoot, targetPath, id, removeMs);
       }
     }
 
+    const materializeStartMs = nowMs();
     const materialized = await source.materialize(resolved, sourceContext);
+    const materializeMs = elapsedMs(materializeStartMs);
+    const phaseTiming = {
+      resolveMs,
+      ...optionalNumberField('removeMs', removeMs),
+      materializeMs,
+      totalMs: elapsedMs(dependencyStartMs),
+    };
     lock.extensions[id] = createExmLockEntry(resolved, materialized);
     installed.push(materialized);
-    options.logger?.info(`installed ${id} from ${resolved.sourceType} -> ${path.relative(config.projectRoot, materialized.path)}`);
+    options.logger?.info(formatMaterializedResult('installed', config.projectRoot, resolved, materialized, phaseTiming));
   }
 
   await saveExmLock(config.projectRoot, lock, lockFileName);
@@ -161,7 +191,7 @@ export async function updateProjectExtensions(
     };
   }
 
-  const cacheRoot = path.join(config.projectRoot, '.exm', 'cache');
+  const cacheRoot = resolveExmCacheRoot(config.projectRoot, options.cacheRoot);
   const registry = options.registry ?? createDefaultSourceRegistry();
   const sourceContext: SourceContext = {
     projectRoot: config.projectRoot,
@@ -177,9 +207,13 @@ export async function updateProjectExtensions(
   await mkdir(installRoot, { recursive: true });
 
   for (const [id, spec] of Object.entries(config.dependencies)) {
+    const dependencyStartMs = nowMs();
     const lockEntry = lock.extensions[id];
     const source = registry.getSource(spec);
+    const resolveStartMs = nowMs();
     const resolved = await source.resolve({ id, spec, previous: lockEntry }, sourceContext);
+    const resolveMs = elapsedMs(resolveStartMs);
+    let removeMs: number | undefined;
 
     if (resolved.sourceType === 'link') {
       skipped.push(id);
@@ -201,11 +235,19 @@ export async function updateProjectExtensions(
           continue;
         }
 
-        await removeManagedTarget(installRoot, targetPath, id);
+        removeMs = await removeManagedTargetWithTiming(installRoot, targetPath, id, removeMs);
+        const materializeStartMs = nowMs();
         const materialized = await source.materialize(resolved, sourceContext);
+        const materializeMs = elapsedMs(materializeStartMs);
+        const phaseTiming = {
+          resolveMs,
+          ...optionalNumberField('removeMs', removeMs),
+          materializeMs,
+          totalMs: elapsedMs(dependencyStartMs),
+        };
         lock.extensions[id] = createExmLockEntry(resolved, materialized);
         updated.push(materialized);
-        options.logger?.info(`updated ${id} from ${resolved.sourceType} -> ${path.relative(config.projectRoot, materialized.path)}`);
+        options.logger?.info(formatMaterializedResult('updated', config.projectRoot, resolved, materialized, phaseTiming));
         continue;
       } else if (resolved.sourceType === 'npm' || resolved.sourceType === 'exm') {
         const nextLockEntry = createExmLockEntry(resolved, {
@@ -216,27 +258,35 @@ export async function updateProjectExtensions(
 
         if (!lockEntryChanged(lockEntry, nextLockEntry)) {
           skipped.push(id);
-          options.logger?.info(`skipped ${id}; already up to date`);
+          options.logger?.info(`${colorText('yellow', 'skipped')} ${id}; already up to date`);
           continue;
         }
 
-        await removeManagedTarget(installRoot, targetPath, id);
+        removeMs = await removeManagedTargetWithTiming(installRoot, targetPath, id, removeMs);
       } else if (shouldReplaceTargetForUpdate(lockEntry.spec, resolved)) {
-        await removeManagedTarget(installRoot, targetPath, id);
+        removeMs = await removeManagedTargetWithTiming(installRoot, targetPath, id, removeMs);
       }
     }
 
+    const materializeStartMs = nowMs();
     const materialized = await source.materialize(resolved, sourceContext);
+    const materializeMs = elapsedMs(materializeStartMs);
+    const phaseTiming = {
+      resolveMs,
+      ...optionalNumberField('removeMs', removeMs),
+      materializeMs,
+      totalMs: elapsedMs(dependencyStartMs),
+    };
     const nextLockEntry = createExmLockEntry(resolved, materialized);
     const didChange = lockEntryChanged(lockEntry, nextLockEntry);
     lock.extensions[id] = nextLockEntry;
 
     if (didChange) {
       updated.push(materialized);
-      options.logger?.info(`updated ${id} from ${resolved.sourceType} -> ${path.relative(config.projectRoot, materialized.path)}`);
+      options.logger?.info(formatMaterializedResult('updated', config.projectRoot, resolved, materialized, phaseTiming));
     } else {
       skipped.push(id);
-      options.logger?.info(`skipped ${id}; already up to date`);
+      options.logger?.info(`${colorText('yellow', 'skipped')} ${id}; already up to date${formatMaterializedObservation(resolved, materialized, phaseTiming)}`);
     }
   }
 
@@ -251,6 +301,109 @@ export async function updateProjectExtensions(
     adopted,
     skipped,
   };
+}
+
+function formatMaterializedResult(
+  action: 'installed' | 'reinstalled' | 'updated',
+  projectRoot: string,
+  resolved: ResolvedExtension,
+  materialized: MaterializedExtension,
+  timing: MaterializePhaseTiming,
+): string {
+  return `${colorAction(action)} ${materialized.id} from ${resolved.sourceType} -> ${path.relative(projectRoot, materialized.path)}${formatMaterializedObservation(resolved, materialized, timing)}`;
+}
+
+function colorAction(action: 'installed' | 'reinstalled' | 'updated'): string {
+  if (action === 'reinstalled') {
+    return colorText('yellow', action);
+  }
+
+  return colorText('green', action);
+}
+
+function formatMaterializedObservation(
+  resolved: ResolvedExtension,
+  materialized: MaterializedExtension,
+  timing: MaterializePhaseTiming,
+): string {
+  const cache = materialized.cache;
+  const sourceTiming = materialized.timing;
+  const parts = [
+    ...optionalCachePart(resolved, cache?.hit),
+    formatTimingPart('resolve', timing.resolveMs),
+    ...optionalTimingPart('remove', timing.removeMs),
+    formatTimingPart('materialize', timing.materializeMs),
+    ...optionalTimingPart('populate', sourceTiming?.cachePopulateMs),
+    ...optionalTimingPart('copy', sourceTiming?.cacheCopyMs),
+    ...optionalTimingPart('git', sourceTiming?.gitSyncMs),
+    ...optionalTimingPart('link', sourceTiming?.linkMs),
+    formatTimingPart('total', timing.totalMs),
+  ];
+
+  return ` [${parts.join(' ')}]`;
+}
+
+function optionalCachePart(resolved: ResolvedExtension, hit: boolean | undefined): string[] {
+  if (hit === undefined) {
+    return [];
+  }
+
+  if (resolved.sourceType === 'git') {
+    return [hit ? colorCachePart('cache=reused', 'green') : colorCachePart('cache=populated', 'yellow')];
+  }
+
+  return [hit ? colorCachePart('cache=hit', 'green') : colorCachePart('cache=miss', 'yellow')];
+}
+
+function colorCachePart(text: string, color: AnsiColor): string {
+  return colorText(color, text);
+}
+
+function optionalTimingPart(label: string, value: number | undefined): string[] {
+  if (value === undefined) {
+    return [];
+  }
+
+  const color: AnsiColor = label === 'total'
+    ? 'cyan'
+    : label === 'copy' || label === 'populate' || label === 'remove'
+      ? 'yellow'
+      : 'dim';
+
+  return [`${label}=${colorText(color, formatDurationMs(value))}`];
+}
+
+function formatTimingPart(label: string, value: number): string {
+  return optionalTimingPart(label, value)[0]!;
+}
+
+type AnsiColor = 'green' | 'yellow' | 'cyan' | 'dim';
+
+const ANSI_COLOR_CODES: Readonly<Record<AnsiColor, number>> = {
+  green: 32,
+  yellow: 33,
+  cyan: 36,
+  dim: 2,
+};
+
+function colorText(color: AnsiColor, text: string): string {
+  if (!shouldUseColor()) {
+    return text;
+  }
+
+  return `\u001B[${ANSI_COLOR_CODES[color]}m${text}\u001B[0m`;
+}
+
+function shouldUseColor(): boolean {
+  if (process.env.NO_COLOR !== undefined) {
+    return false;
+  }
+
+  if (process.env.FORCE_COLOR !== undefined) {
+    return process.env.FORCE_COLOR !== '0';
+  }
+
+  return process.stdout.isTTY === true;
 }
 
 async function adoptExistingUnmanagedTarget(
@@ -268,6 +421,18 @@ async function adoptExistingUnmanagedTarget(
 async function removeManagedTarget(installRoot: string, targetPath: string, id: string): Promise<void> {
   assertPathInside(installRoot, targetPath, `extension target for "${id}"`);
   await rm(targetPath, { recursive: true, force: true });
+}
+
+async function removeManagedTargetWithTiming(
+  installRoot: string,
+  targetPath: string,
+  id: string,
+  previousRemoveMs: number | undefined,
+): Promise<number> {
+  const removeStartMs = nowMs();
+  await removeManagedTarget(installRoot, targetPath, id);
+
+  return (previousRemoveMs ?? 0) + elapsedMs(removeStartMs);
 }
 
 function shouldReplaceTargetForUpdate(lockedSpec: string | undefined, resolved: ResolvedExtension): boolean {
@@ -313,4 +478,8 @@ function getProjectLockFileName(usesLocalLock: boolean): string | undefined {
 
 function optionalStringField<Key extends string>(key: Key, value: string | undefined): Partial<Record<Key, string>> {
   return value === undefined ? {} : { [key]: value } as Record<Key, string>;
+}
+
+function optionalNumberField<Key extends string>(key: Key, value: number | undefined): Partial<Record<Key, number>> {
+  return value === undefined ? {} : { [key]: value } as Record<Key, number>;
 }

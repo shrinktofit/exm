@@ -3,6 +3,7 @@ export type { InitProjectConfigOptions, InitProjectConfigResult, InitProjectConf
 export { EXM_INSTALL_DIR, EXM_LOCAL_FILE, loadProjectConfig, readDependencies, validateExtensionId } from './config/project-config.js';
 export type { ExmProjectConfig } from './config/project-config.js';
 export { installProjectExtensions, updateProjectExtensions } from './installer/extension-installer.js';
+export { resolveExmCacheRoot } from './installer/cache-root.js';
 export type {
   ExmLogger,
   InstallProjectExtensionsOptions,
@@ -37,6 +38,8 @@ export type {
   ExtensionRequest,
   ExtensionSource,
   MaterializedExtension,
+  MaterializedExtensionCache,
+  MaterializedExtensionTiming,
   MaterializedGitExtension,
   PreviousResolvedExtension,
   ResolvedExmRegistryExtension,

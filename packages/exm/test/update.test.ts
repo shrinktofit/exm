@@ -123,14 +123,17 @@ describe('updateProjectExtensions', () => {
     });
 
     expect(result.updated).toEqual([
-      {
+      expect.objectContaining({
         id: 'sample',
         path: targetPath,
         mode: 'clone',
         git: {
           commit: resolvedCommit,
         },
-      },
+        timing: {
+          gitSyncMs: expect.any(Number),
+        },
+      }),
     ]);
     expect(result.adopted).toEqual([]);
     expect(calls).toEqual([
@@ -184,14 +187,17 @@ describe('updateProjectExtensions', () => {
     });
 
     expect(result.updated).toEqual([
-      {
+      expect.objectContaining({
         id: 'sample',
         path: targetPath,
         mode: 'clone',
         git: {
           commit: resolvedCommit,
         },
-      },
+        timing: {
+          gitSyncMs: expect.any(Number),
+        },
+      }),
     ]);
     await expect(readFile(path.join(projectRoot, 'exm-lock.local.yaml'), 'utf8')).resolves.toContain(`commit: ${resolvedCommit}`);
     await expect(readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')).rejects.toThrow();
@@ -275,14 +281,17 @@ describe('updateProjectExtensions', () => {
     });
 
     expect(result.updated).toEqual([
-      {
+      expect.objectContaining({
         id: 'sample',
         path: targetPath,
         mode: 'clone',
         git: {
           commit: resolvedCommit,
         },
-      },
+        timing: {
+          gitSyncMs: expect.any(Number),
+        },
+      }),
     ]);
     expect(calls).toEqual([
       ['pull', '--ff-only'],

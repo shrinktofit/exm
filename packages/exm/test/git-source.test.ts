@@ -151,6 +151,9 @@ describe('GitExtensionSource', () => {
       git: {
         commit: resolvedCommit,
       },
+      timing: {
+        gitSyncMs: expect.any(Number),
+      },
     });
     expect(calls).toEqual([
       ['clone', 'https://github.com/feb/example.git', targetPath],
@@ -199,6 +202,9 @@ describe('GitExtensionSource', () => {
       git: {
         commit: resolvedCommit,
       },
+      timing: {
+        gitSyncMs: expect.any(Number),
+      },
     });
     await expect(readFile(path.join(targetPath, 'package.json'), 'utf8')).resolves.toContain('sample-extension');
   });
@@ -246,6 +252,14 @@ describe('GitExtensionSource', () => {
       mode: 'link',
       git: {
         commit: resolvedCommit,
+      },
+      cache: {
+        path: path.join(context.cacheRoot, 'git', createGitCacheKey(resolved.git!)),
+        hit: false,
+      },
+      timing: {
+        gitSyncMs: expect.any(Number),
+        linkMs: expect.any(Number),
       },
     });
     expect(resolved.reference).toBe('HEAD:packages/sample-extension');
@@ -299,6 +313,25 @@ describe('GitExtensionSource', () => {
       git: {
         commit: resolvedCommit,
       },
+      cache: {
+        path: path.join(context.cacheRoot, 'git', createGitCacheKey(resolved.git!)),
+        hit: false,
+      },
+      timing: {
+        gitSyncMs: expect.any(Number),
+        linkMs: expect.any(Number),
+      },
+    });
+
+    const cachedMaterialized = await source.materialize(resolved, context);
+
+    expect(cachedMaterialized.cache).toEqual({
+      path: path.join(context.cacheRoot, 'git', createGitCacheKey(resolved.git!)),
+      hit: true,
+    });
+    expect(cachedMaterialized.timing).toEqual({
+      gitSyncMs: expect.any(Number),
+      linkMs: expect.any(Number),
     });
     expect(resolved.reference).toBe('abcdef1:packages/sample-extension');
   });

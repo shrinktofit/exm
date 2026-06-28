@@ -35,7 +35,7 @@ describe('installProjectExtensions exm registry source', () => {
     const client = new FakeExmRegistryClient([createExmResolution('1.2.3')]);
     const registry = createExmRegistry(client);
 
-    const result = await installProjectExtensions({ projectRoot, registry });
+    const result = await installProjectExtensions({ projectRoot, registry, cacheRoot: path.join(workspace, 'cache') });
     const targetPath = path.join(projectRoot, 'extensions', 'company-tool');
     const lockContent = parse(await readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')) as {
       readonly lockFileVersion: number;
@@ -62,11 +62,14 @@ describe('installProjectExtensions exm registry source', () => {
     ]);
     expect(client.lockedRequests).toEqual([]);
     expect(result.installed).toEqual([
-      {
+      expect.objectContaining({
         id: 'company-tool',
         path: targetPath,
         mode: 'copy',
-      },
+        cache: expect.objectContaining({
+          hit: false,
+        }),
+      }),
     ]);
     await expect(readFile(path.join(targetPath, 'package.json'), 'utf8')).resolves.toContain('@company/tool');
     expect(lockContent.lockFileVersion).toBe(1);
@@ -112,7 +115,7 @@ describe('installProjectExtensions exm registry source', () => {
     const client = new FakeExmRegistryClient([]);
     const registry = createExmRegistry(client);
 
-    const result = await installProjectExtensions({ projectRoot, registry });
+    const result = await installProjectExtensions({ projectRoot, registry, cacheRoot: path.join(workspace, 'cache') });
 
     expect(client.requests).toEqual([]);
     expect(client.lockedRequests).toEqual([
@@ -125,11 +128,14 @@ describe('installProjectExtensions exm registry source', () => {
       },
     ]);
     expect(result.installed).toEqual([
-      {
+      expect.objectContaining({
         id: 'company-tool',
         path: path.join(projectRoot, 'extensions', 'company-tool'),
         mode: 'copy',
-      },
+        cache: expect.objectContaining({
+          hit: false,
+        }),
+      }),
     ]);
     await expect(readFile(path.join(projectRoot, 'extensions', 'company-tool', 'package.json'), 'utf8')).resolves.toContain('1.2.3');
   });
@@ -156,6 +162,7 @@ describe('installProjectExtensions exm registry source', () => {
     await expect(installProjectExtensions({
       projectRoot,
       registry: createExmRegistry(client),
+      cacheRoot: path.join(workspace, 'cache'),
     })).rejects.toThrow('requires package.json exm.registry');
     expect(client.requests).toEqual([]);
     expect(client.lockedRequests).toEqual([]);
@@ -201,17 +208,20 @@ describe('updateProjectExtensions exm registry source', () => {
     const client = new FakeExmRegistryClient([createExmResolution('1.2.4')]);
     const registry = createExmRegistry(client);
 
-    const result = await updateProjectExtensions({ projectRoot, registry });
+    const result = await updateProjectExtensions({ projectRoot, registry, cacheRoot: path.join(workspace, 'cache') });
     const lockContent = parse(await readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')) as {
       readonly extensions: Record<string, { readonly resolution?: { readonly version?: string; readonly integrity?: string } }>;
     };
 
     expect(result.updated).toEqual([
-      {
+      expect.objectContaining({
         id: 'company-tool',
         path: targetPath,
         mode: 'copy',
-      },
+        cache: expect.objectContaining({
+          hit: false,
+        }),
+      }),
     ]);
     await expect(readFile(path.join(targetPath, 'package.json'), 'utf8')).resolves.toContain('1.2.4');
     expect(lockContent.extensions['company-tool']?.resolution?.version).toBe('1.2.4');
@@ -256,7 +266,7 @@ describe('updateProjectExtensions exm registry source', () => {
     const client = new FakeExmRegistryClient([]);
     const registry = createExmRegistry(client);
 
-    const result = await updateProjectExtensions({ projectRoot, registry });
+    const result = await updateProjectExtensions({ projectRoot, registry, cacheRoot: path.join(workspace, 'cache') });
 
     expect(client.requests).toEqual([]);
     expect(client.lockedRequests).toEqual([

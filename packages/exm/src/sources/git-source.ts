@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { assertDirectory, assertPathInside, createDirectoryLink, isSameRealPath, pathExists } from '../fs/path.js';
+import { elapsedMs, nowMs } from '../timing.js';
 import { withSupportedDependencySpecifiers } from './specifier-help.js';
 import type { ExtensionRequest, ExtensionSource, MaterializedExtension, ResolvedExtension, SourceContext } from './source.js';
 
@@ -111,7 +112,9 @@ export class GitExtensionSource implements ExtensionSource {
     }
 
     if (git.subpath === undefined) {
+      const gitSyncStartMs = nowMs();
       const commit = await ensureGitCheckout(git, targetPath, this.commandRunner);
+      const gitSyncMs = elapsedMs(gitSyncStartMs);
 
       return {
         id: resolved.id,
@@ -120,14 +123,22 @@ export class GitExtensionSource implements ExtensionSource {
         git: {
           commit,
         },
+        timing: {
+          gitSyncMs,
+        },
       };
     }
 
     const checkoutPath = path.join(context.cacheRoot, 'git', createGitCacheKey(git));
     const sourcePath = resolveGitSourcePath(checkoutPath, git);
+    const cacheHit = await pathExists(checkoutPath);
+    const gitSyncStartMs = nowMs();
     const commit = await ensureGitCheckout(git, checkoutPath, this.commandRunner);
+    const gitSyncMs = elapsedMs(gitSyncStartMs);
     await assertDirectory(sourcePath, `git source for "${resolved.id}"`);
+    const linkStartMs = nowMs();
     await createDirectoryLink(sourcePath, targetPath);
+    const linkMs = elapsedMs(linkStartMs);
 
     return {
       id: resolved.id,
@@ -135,6 +146,14 @@ export class GitExtensionSource implements ExtensionSource {
       mode: 'link',
       git: {
         commit,
+      },
+      cache: {
+        path: checkoutPath,
+        hit: cacheHit,
+      },
+      timing: {
+        gitSyncMs,
+        linkMs,
       },
     };
   }

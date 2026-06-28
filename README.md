@@ -49,6 +49,8 @@ exm update
 
 Dependency keys are extension ids and must be single directory names. Installed extensions always go to `<project>/extensions/<extension-id>`.
 
+`exm` caches downloaded and extracted artifacts under `~/.exm/cache` by default. CI can persist that directory between runs, or set `EXM_CACHE_ROOT=<path>` to use a different cache directory such as a workspace-local `.exm/cache`.
+
 ## Publishing Extensions
 
 `exm publish` reads the exm registry server from `package.json#exm.registry`. It still deploys and packs locally, but the registry server owns artifact upload and package metadata updates.

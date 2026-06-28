@@ -8,6 +8,7 @@ import { Transform, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { extract as extractTar } from 'tar';
 import { assertDirectory, copyDirectory, pathExists } from '../fs/path.js';
+import { elapsedMs, nowMs } from '../timing.js';
 import { loadNpmConfigOptions } from './npm-source.js';
 import { withSupportedDependencySpecifiers } from './specifier-help.js';
 import type { ExtensionRequest, ExtensionSource, MaterializedExtension, PreviousResolvedExtension, ResolvedExmRegistryExtension, ResolvedExtension, SourceContext } from './source.js';
@@ -145,19 +146,34 @@ export class ExmRegistrySource implements ExtensionSource {
       throw new Error(`Resolved extension "${resolved.id}" is missing exm registry metadata`);
     }
 
-    if (!await pathExists(resolved.sourcePath)) {
+    const cacheHit = await pathExists(resolved.sourcePath);
+    let cachePopulateMs: number | undefined;
+
+    if (!cacheHit) {
+      const cachePopulateStartMs = nowMs();
       await mkdir(path.dirname(resolved.sourcePath), { recursive: true });
       await this.registryClient.extract(exm, resolved.sourcePath, context.projectRoot);
       await assertDirectory(resolved.sourcePath, `exm registry cache for "${resolved.id}"`);
+      cachePopulateMs = elapsedMs(cachePopulateStartMs);
     }
 
     const targetPath = path.join(context.installRoot, resolved.id);
+    const cacheCopyStartMs = nowMs();
     await copyDirectory(resolved.sourcePath, targetPath);
+    const cacheCopyMs = elapsedMs(cacheCopyStartMs);
 
     return {
       id: resolved.id,
       path: targetPath,
       mode: 'copy',
+      cache: {
+        path: resolved.sourcePath,
+        hit: cacheHit,
+      },
+      timing: {
+        ...optionalNumberField('cachePopulateMs', cachePopulateMs),
+        cacheCopyMs,
+      },
     };
   }
 
@@ -647,6 +663,10 @@ async function loadSemver(): Promise<SemverModule> {
 
 function optionalStringField<Key extends string>(key: Key, value: string | undefined): Partial<Record<Key, string>> {
   return value === undefined ? {} : { [key]: value } as Record<Key, string>;
+}
+
+function optionalNumberField<Key extends string>(key: Key, value: number | undefined): Partial<Record<Key, number>> {
+  return value === undefined ? {} : { [key]: value } as Record<Key, number>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { assertDirectory, copyDirectory, pathExists } from '../fs/path.js';
+import { elapsedMs, nowMs } from '../timing.js';
 import { withSupportedDependencySpecifiers } from './specifier-help.js';
 import type { ExtensionRequest, ExtensionSource, MaterializedExtension, PreviousResolvedExtension, ResolvedExtension, ResolvedNpmExtension, SourceContext } from './source.js';
 
@@ -92,19 +93,34 @@ export class NpmExtensionSource implements ExtensionSource {
       throw new Error(`Resolved extension "${resolved.id}" is missing npm metadata`);
     }
 
-    if (!await pathExists(resolved.sourcePath)) {
+    const cacheHit = await pathExists(resolved.sourcePath);
+    let cachePopulateMs: number | undefined;
+
+    if (!cacheHit) {
+      const cachePopulateStartMs = nowMs();
       await mkdir(path.dirname(resolved.sourcePath), { recursive: true });
       await this.packageClient.extract(npm, resolved.sourcePath, context.projectRoot);
       await assertDirectory(resolved.sourcePath, `npm package cache for "${resolved.id}"`);
+      cachePopulateMs = elapsedMs(cachePopulateStartMs);
     }
 
     const targetPath = path.join(context.installRoot, resolved.id);
+    const cacheCopyStartMs = nowMs();
     await copyDirectory(resolved.sourcePath, targetPath);
+    const cacheCopyMs = elapsedMs(cacheCopyStartMs);
 
     return {
       id: resolved.id,
       path: targetPath,
       mode: 'copy',
+      cache: {
+        path: resolved.sourcePath,
+        hit: cacheHit,
+      },
+      timing: {
+        ...optionalNumberField('cachePopulateMs', cachePopulateMs),
+        cacheCopyMs,
+      },
     };
   }
 
@@ -383,4 +399,8 @@ function readOptionalManifestString(value: unknown, label: string): string | und
 
 function optionalStringField<Key extends string>(key: Key, value: string | undefined): Partial<Record<Key, string>> {
   return value === undefined ? {} : { [key]: value } as Record<Key, string>;
+}
+
+function optionalNumberField<Key extends string>(key: Key, value: number | undefined): Partial<Record<Key, number>> {
+  return value === undefined ? {} : { [key]: value } as Record<Key, number>;
 }

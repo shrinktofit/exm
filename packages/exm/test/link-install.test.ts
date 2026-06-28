@@ -236,14 +236,17 @@ describe('installProjectExtensions link source', () => {
     };
 
     expect(result.installed).toEqual([
-      {
+      expect.objectContaining({
         id: 'sample',
         path: targetPath,
         mode: 'clone',
         git: {
           commit: resolvedCommit,
         },
-      },
+        timing: {
+          gitSyncMs: expect.any(Number),
+        },
+      }),
     ]);
     expect(calls).toEqual([
       ['clone', 'https://github.com/feb/example.git', targetPath],
