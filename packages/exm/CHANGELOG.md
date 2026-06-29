@@ -1,5 +1,11 @@
 # @bsgames/exm
 
+## 0.0.9
+
+### Patch Changes
+
+- a6e4677: Track copied install state in project temp data so `exm install` and `exm update` rebuild stale `exm:` and `npm:` extension directories instead of trusting lock/spec matches alone.
+
 ## 0.0.8
 
 ### Patch Changes
