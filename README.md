@@ -53,13 +53,29 @@ Dependency keys are extension ids and must be single directory names. Installed 
 
 ## Publishing Extensions
 
-`exm publish` reads the exm registry server from `package.json#exm.registry`. It still deploys and packs locally, but the registry server owns artifact upload and package metadata updates.
+`exm publish` reads the exm registry server from `package.json#exm.registry`, unless `--registry` is provided. It still deploys and packs locally, but the registry server owns artifact upload and package metadata updates.
+
+Publish can split the source package name from the registry package name and the runtime extension id:
+
+```json
+{
+  "name": "@org/source-package",
+  "exm": {
+    "registry": "https://exm.example/",
+    "registryPackageName": "@org/some-extension",
+    "extensionId": "some-extension"
+  }
+}
+```
+
+`registryPackageName` is the package name used by the exm registry and by install specs such as `exm:@org/some-extension@^1.0.0`. `extensionId` patches only the generated publish artifact `package.json#name`, for Cocos/Vortex extension identity. Both fields are optional.
 
 From either the workspace root or the target package root:
 
 ```bash
 exm deploy @scope/extension-name
 exm publish @scope/extension-name --dry-run
+exm publish @scope/extension-name --registry https://exm.example/
 exm publish @scope/extension-name
 ```
 
