@@ -2,13 +2,15 @@ import { mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { EXM_INSTALL_DIR, loadProjectConfig } from '../config/project-config.js';
-import { assertPathInside, pathExists } from '../fs/path.js';
+import { assertPathInside, isSymbolicLinkPath, pathExists } from '../fs/path.js';
 import { EXM_LOCAL_LOCK_FILE, createExmLockEntry, loadExmLock, saveExmLock } from '../lock/exm-lock.js';
 import { createDefaultSourceRegistry, ExtensionSourceRegistry } from '../sources/registry.js';
 import { elapsedMs, formatDurationMs, nowMs } from '../timing.js';
 import { resolveExmCacheRoot } from './cache-root.js';
+import { createInstallStateEntry, deleteInstallStateEntry, installStateEntryMatches, loadInstallState, pruneInstallStateEntries, saveInstallState, setInstallStateEntry } from './install-state.js';
 import type { ExmLockExtension, ExmLockFile } from '../lock/exm-lock.js';
 import type { MaterializedExtension, ResolvedExtension, SourceContext } from '../sources/source.js';
+import type { ExmInstallStateFile } from './install-state.js';
 
 export interface ExmLogger {
   info(message: string): void;
@@ -58,11 +60,17 @@ export async function installProjectExtensions(
 
   const lockFileName = getProjectLockFileName(config.usesLocalLock);
   const lock = await loadExmLock(config.projectRoot, lockFileName);
+  const installState = await loadInstallState(config.projectRoot);
   const didPruneLock = pruneUnusedLockEntries(lock, dependencyIds);
+  let didChangeInstallState = pruneInstallStateEntries(installState, dependencyIds);
 
   if (dependencyCount === 0) {
     if (didPruneLock) {
       await saveExmLock(config.projectRoot, lock, lockFileName);
+    }
+
+    if (didChangeInstallState) {
+      await saveInstallState(config.projectRoot, installState);
     }
 
     return {
@@ -98,6 +106,7 @@ export async function installProjectExtensions(
     const resolveStartMs = nowMs();
     const resolved = await source.resolve({ id, spec, previous: lockEntry }, sourceContext);
     const resolveMs = elapsedMs(resolveStartMs);
+    const expectedInstallStateEntry = createInstallStateEntry(resolved);
     let removeMs: number | undefined;
     const targetExists = await pathExists(targetPath);
 
@@ -107,6 +116,7 @@ export async function installProjectExtensions(
 
         if (adoptedMaterialized !== undefined) {
           lock.extensions[id] = createExmLockEntry(resolved, adoptedMaterialized);
+          didChangeInstallState = recordInstallStateEntry(installState, id, resolved) || didChangeInstallState;
           adopted.push(adoptedMaterialized);
           options.logger?.info(`adopted ${id} from ${resolved.sourceType} -> ${path.relative(config.projectRoot, adoptedMaterialized.path)}`);
           continue;
@@ -123,11 +133,15 @@ export async function installProjectExtensions(
           totalMs: elapsedMs(dependencyStartMs),
         };
         lock.extensions[id] = createExmLockEntry(resolved, materialized);
+        didChangeInstallState = recordInstallStateEntry(installState, id, resolved) || didChangeInstallState;
         installed.push(materialized);
         options.logger?.info(formatMaterializedResult('reinstalled', config.projectRoot, resolved, materialized, phaseTiming));
         continue;
       } else {
-        if (lockEntry.spec === spec) {
+        if (
+          lockEntry.spec === spec
+          && await targetMatchesInstallState(targetPath, installState, id, expectedInstallStateEntry)
+        ) {
           skipped.push(id);
           options.logger?.info(`${colorText('yellow', 'skipped')} ${id}; already installed`);
           continue;
@@ -147,11 +161,15 @@ export async function installProjectExtensions(
       totalMs: elapsedMs(dependencyStartMs),
     };
     lock.extensions[id] = createExmLockEntry(resolved, materialized);
+    didChangeInstallState = recordInstallStateEntry(installState, id, resolved) || didChangeInstallState;
     installed.push(materialized);
     options.logger?.info(formatMaterializedResult('installed', config.projectRoot, resolved, materialized, phaseTiming));
   }
 
   await saveExmLock(config.projectRoot, lock, lockFileName);
+  if (didChangeInstallState) {
+    await saveInstallState(config.projectRoot, installState);
+  }
 
   return {
     projectRoot: config.projectRoot,
@@ -175,11 +193,17 @@ export async function updateProjectExtensions(
 
   const lockFileName = getProjectLockFileName(config.usesLocalLock);
   const lock = await loadExmLock(config.projectRoot, lockFileName);
+  const installState = await loadInstallState(config.projectRoot);
   const didPruneLock = pruneUnusedLockEntries(lock, dependencyIds);
+  let didChangeInstallState = pruneInstallStateEntries(installState, dependencyIds);
 
   if (dependencyCount === 0) {
     if (didPruneLock) {
       await saveExmLock(config.projectRoot, lock, lockFileName);
+    }
+
+    if (didChangeInstallState) {
+      await saveInstallState(config.projectRoot, installState);
     }
 
     return {
@@ -213,6 +237,7 @@ export async function updateProjectExtensions(
     const resolveStartMs = nowMs();
     const resolved = await source.resolve({ id, spec, previous: lockEntry }, sourceContext);
     const resolveMs = elapsedMs(resolveStartMs);
+    const expectedInstallStateEntry = createInstallStateEntry(resolved);
     let removeMs: number | undefined;
 
     if (resolved.sourceType === 'link') {
@@ -230,6 +255,7 @@ export async function updateProjectExtensions(
 
         if (adoptedMaterialized !== undefined) {
           lock.extensions[id] = createExmLockEntry(resolved, adoptedMaterialized);
+          didChangeInstallState = recordInstallStateEntry(installState, id, resolved) || didChangeInstallState;
           adopted.push(adoptedMaterialized);
           options.logger?.info(`adopted ${id} from ${resolved.sourceType} -> ${path.relative(config.projectRoot, adoptedMaterialized.path)}`);
           continue;
@@ -246,6 +272,7 @@ export async function updateProjectExtensions(
           totalMs: elapsedMs(dependencyStartMs),
         };
         lock.extensions[id] = createExmLockEntry(resolved, materialized);
+        didChangeInstallState = recordInstallStateEntry(installState, id, resolved) || didChangeInstallState;
         updated.push(materialized);
         options.logger?.info(formatMaterializedResult('updated', config.projectRoot, resolved, materialized, phaseTiming));
         continue;
@@ -256,7 +283,10 @@ export async function updateProjectExtensions(
           mode: 'copy',
         });
 
-        if (!lockEntryChanged(lockEntry, nextLockEntry)) {
+        if (
+          !lockEntryChanged(lockEntry, nextLockEntry)
+          && await targetMatchesInstallState(targetPath, installState, id, expectedInstallStateEntry)
+        ) {
           skipped.push(id);
           options.logger?.info(`${colorText('yellow', 'skipped')} ${id}; already up to date`);
           continue;
@@ -280,8 +310,10 @@ export async function updateProjectExtensions(
     const nextLockEntry = createExmLockEntry(resolved, materialized);
     const didChange = lockEntryChanged(lockEntry, nextLockEntry);
     lock.extensions[id] = nextLockEntry;
+    const didInstallStateChangeForEntry = recordInstallStateEntry(installState, id, resolved);
+    didChangeInstallState = didInstallStateChangeForEntry || didChangeInstallState;
 
-    if (didChange) {
+    if (didChange || didInstallStateChangeForEntry || removeMs !== undefined) {
       updated.push(materialized);
       options.logger?.info(formatMaterializedResult('updated', config.projectRoot, resolved, materialized, phaseTiming));
     } else {
@@ -292,6 +324,9 @@ export async function updateProjectExtensions(
 
   if (updated.length > 0 || adopted.length > 0 || didPruneLock) {
     await saveExmLock(config.projectRoot, lock, lockFileName);
+  }
+  if (didChangeInstallState) {
+    await saveInstallState(config.projectRoot, installState);
   }
 
   return {
@@ -421,6 +456,34 @@ async function adoptExistingUnmanagedTarget(
 async function removeManagedTarget(installRoot: string, targetPath: string, id: string): Promise<void> {
   assertPathInside(installRoot, targetPath, `extension target for "${id}"`);
   await rm(targetPath, { recursive: true, force: true });
+}
+
+async function targetMatchesInstallState(
+  targetPath: string,
+  installState: ExmInstallStateFile,
+  id: string,
+  expectedInstallStateEntry: ReturnType<typeof createInstallStateEntry>,
+): Promise<boolean> {
+  if (expectedInstallStateEntry === undefined) {
+    return true;
+  }
+
+  return !await isSymbolicLinkPath(targetPath)
+    && installStateEntryMatches(installState.extensions[id], expectedInstallStateEntry);
+}
+
+function recordInstallStateEntry(
+  installState: ExmInstallStateFile,
+  id: string,
+  resolved: ResolvedExtension,
+): boolean {
+  const entry = createInstallStateEntry(resolved);
+
+  if (entry === undefined) {
+    return deleteInstallStateEntry(installState, id);
+  }
+
+  return setInstallStateEntry(installState, id, entry);
 }
 
 async function removeManagedTargetWithTiming(
