@@ -1,7 +1,7 @@
 import { access, link, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { list as listTar } from 'tar';
+import { extract as extractTar, list as listTar } from 'tar';
 import { afterEach, describe, expect, it } from 'vitest';
 import { deployExtensionPackage, publishExtensionPackage } from '../src/index.js';
 import type { ExmRegistryPublishClient, ExmRegistryPublishPlanRequest, ExmRegistryPublishRequest, ExmRegistryPublishResult, PublishCommandOptions, PublishCommandRunner } from '../src/index.js';
@@ -40,6 +40,7 @@ describe('deployExtensionPackage', () => {
 
     expect(result).toMatchObject({
       packageName: '@feb/extension-sample',
+      sourcePackageName: '@feb/extension-sample',
       version: '1.2.3',
       packageRoot,
       workspaceRoot,
@@ -109,6 +110,7 @@ describe('publishExtensionPackage', () => {
       deployDir: path.join(packageRoot, '.deploy'),
       dryRun: true,
       registry: REGISTRY_URL,
+      registryPackageName: '@feb/extension-sample',
       metadataUrl: 'https://registry.example.com/%40feb/extension-sample',
       artifactUrl: 'https://registry.example.com/%40feb/extension-sample/1.2.3/extension.tgz',
     });
@@ -165,6 +167,132 @@ describe('publishExtensionPackage', () => {
     expect(registryClient.tarballEntries).toContain('package/node_modules/@feb/runtime/index.js');
     expect(registryClient.tarballEntries).toContain('package/node_modules/@feb/runtime/linked.js');
     expect(registryClient.tarballEntryTypes.get('package/node_modules/@feb/runtime/linked.js')).toBe('File');
+    expect(registryClient.tarballPackageJson?.name).toBe('@feb/extension-sample');
+  });
+
+  it('should publish to registryPackageName while deploying the source package', async () => {
+    /// @case
+    /// 1. The source package declares package.json exm.registryPackageName.
+    /// 2. exm publish runs for the source package name.
+    /// @expect
+    /// pnpm deploy still filters the source package, but the registry request and URLs use registryPackageName.
+    const { packageRoot, workspaceRoot } = await createWorkspace('@feb/extension-source', {
+      registryPackageName: '@org/some-extension',
+    });
+    const fake = createFakePublishCommands('@feb/extension-source', '1.2.3');
+    const registryClient = new FakeRegistryPublishClient();
+
+    const result = await publishExtensionPackage({
+      packageName: '@feb/extension-source',
+      cwd: workspaceRoot,
+      dryRun: true,
+      commandRunner: fake.runner,
+      registryClient,
+    });
+
+    expect(fake.commands[0]?.args).toContain('@feb/extension-source');
+    expect(registryClient.plans).toHaveLength(1);
+    expect(registryClient.plans[0]).toMatchObject({
+      packageName: '@org/some-extension',
+      projectRoot: packageRoot,
+    });
+    expect(result).toMatchObject({
+      packageName: '@feb/extension-source',
+      sourcePackageName: '@feb/extension-source',
+      registryPackageName: '@org/some-extension',
+      metadataUrl: 'https://registry.example.com/%40org/some-extension',
+      artifactUrl: 'https://registry.example.com/%40org/some-extension/1.2.3/extension.tgz',
+    });
+  });
+
+  it('should patch deployed package name to extensionId without changing registry package name', async () => {
+    /// @case
+    /// 1. The source package declares package.json exm.extensionId.
+    /// 2. exm publish packs the generated .deploy directory.
+    /// @expect
+    /// The registry package remains the source package name, and the artifact package.json name becomes extensionId.
+    const { packageRoot } = await createWorkspace('@feb/extension-sample', {
+      extensionId: 'sample-extension',
+    });
+    const fake = createFakePublishCommands('@feb/extension-sample', '1.2.3');
+    const registryClient = new FakeRegistryPublishClient();
+
+    const result = await publishExtensionPackage({
+      packageName: '@feb/extension-sample',
+      cwd: packageRoot,
+      commandRunner: fake.runner,
+      registryClient,
+    });
+
+    expect(result).toMatchObject({
+      packageName: '@feb/extension-sample',
+      registryPackageName: '@feb/extension-sample',
+      extensionId: 'sample-extension',
+    });
+    expect(registryClient.publishes[0]?.packageName).toBe('@feb/extension-sample');
+    expect(registryClient.tarballPackageJson?.name).toBe('sample-extension');
+  });
+
+  it('should keep registryPackageName and extensionId independent when both are configured', async () => {
+    /// @case
+    /// 1. The source package declares both package.json exm.registryPackageName and exm.extensionId.
+    /// 2. exm publish uploads the generated artifact.
+    /// @expect
+    /// Registry metadata uses registryPackageName while the artifact package.json name uses extensionId.
+    const { packageRoot } = await createWorkspace('@feb/extension-source', {
+      registryPackageName: '@org/some-extension',
+      extensionId: 'runtime-extension',
+    });
+    const fake = createFakePublishCommands('@feb/extension-source', '1.2.3');
+    const registryClient = new FakeRegistryPublishClient();
+
+    const result = await publishExtensionPackage({
+      packageName: '@feb/extension-source',
+      cwd: packageRoot,
+      commandRunner: fake.runner,
+      registryClient,
+    });
+
+    expect(result).toMatchObject({
+      packageName: '@feb/extension-source',
+      sourcePackageName: '@feb/extension-source',
+      registryPackageName: '@org/some-extension',
+      extensionId: 'runtime-extension',
+      metadataUrl: 'https://registry.example.com/%40org/some-extension',
+      artifactUrl: 'https://registry.example.com/%40org/some-extension/1.2.3/extension.tgz',
+    });
+    expect(registryClient.publishes[0]?.packageName).toBe('@org/some-extension');
+    expect(registryClient.tarballPackageJson?.name).toBe('runtime-extension');
+  });
+
+  it('should reject invalid publish identity config before registry requests', async () => {
+    /// @case
+    /// 1. package.json exm.registryPackageName is not a valid npm package name.
+    /// 2. package.json exm.extensionId is not a single path segment.
+    /// @expect
+    /// exm rejects each invalid identity before contacting the registry server.
+    const invalidRegistry = await createWorkspace('@feb/extension-sample', {
+      registryPackageName: '@Bad/extension',
+    });
+    const invalidExtension = await createWorkspace('@feb/extension-sample', {
+      extensionId: 'bad/id',
+    });
+    const registryClient = new FakeRegistryPublishClient();
+
+    await expect(publishExtensionPackage({
+      packageName: '@feb/extension-sample',
+      cwd: invalidRegistry.packageRoot,
+      commandRunner: createFakePublishCommands('@feb/extension-sample', '1.2.3').runner,
+      registryClient,
+    })).rejects.toThrow('package.json exm.registryPackageName must be a valid npm package name');
+    await expect(publishExtensionPackage({
+      packageName: '@feb/extension-sample',
+      cwd: invalidExtension.packageRoot,
+      commandRunner: createFakePublishCommands('@feb/extension-sample', '1.2.3').runner,
+      registryClient,
+    })).rejects.toThrow('package.json exm.extensionId must be a single path segment');
+    expect(registryClient.plans).toEqual([]);
+    expect(registryClient.publishes).toEqual([]);
   });
 
   it('should use a command-line registry override instead of package.json exm.registry', async () => {
@@ -190,6 +318,7 @@ describe('publishExtensionPackage', () => {
     expect(result.metadataUrl).toBe('https://override.example.com/exm/%40feb/extension-sample');
     expect(registryClient.plans).toHaveLength(1);
     expect(registryClient.plans[0]?.registry).toBe('https://override.example.com/exm/');
+    expect(registryClient.plans[0]?.packageName).toBe('@feb/extension-sample');
   });
 
   it('should allow a command-line registry when package.json has no exm.registry', async () => {
@@ -415,6 +544,7 @@ class FakeRegistryPublishClient implements ExmRegistryPublishClient {
   public readonly publishes: ExmRegistryPublishRequest[] = [];
   public tarballEntries: string[] = [];
   public tarballEntryTypes = new Map<string, string>();
+  public tarballPackageJson: Record<string, unknown> | undefined;
 
   public constructor(private readonly options: { readonly duplicate?: boolean } = {}) {}
 
@@ -433,6 +563,7 @@ class FakeRegistryPublishClient implements ExmRegistryPublishClient {
     const tarballEntries = await listTarballEntries(request.tarballPath);
     this.tarballEntries = tarballEntries.map((entry) => entry.path);
     this.tarballEntryTypes = new Map(tarballEntries.map((entry) => [entry.path, entry.type]));
+    this.tarballPackageJson = await readTarballPackageJson(request.tarballPath);
 
     if (this.options.duplicate === true) {
       throw new Error(`exm registry package "${request.packageName}" version ${request.version} already exists`);
@@ -482,20 +613,30 @@ function createFakePublishCommands(deployedName: string, version: string): FakeP
   return fake;
 }
 
-async function createWorkspace(packageName: string, options: { readonly registry?: boolean } = {}): Promise<{ packageRoot: string; workspaceRoot: string }> {
+async function createWorkspace(
+  packageName: string,
+  options: {
+    readonly registry?: boolean;
+    readonly registryPackageName?: string;
+    readonly extensionId?: string;
+  } = {},
+): Promise<{ packageRoot: string; workspaceRoot: string }> {
   const workspaceRoot = await createTempWorkspaceRoot();
   const packageRoot = path.join(workspaceRoot, 'packages', 'extension');
+  const exm = {
+    ...(options.registry === false
+      ? {}
+      : {
+        registry: REGISTRY_URL,
+      }),
+    ...(options.registryPackageName === undefined ? {} : { registryPackageName: options.registryPackageName }),
+    ...(options.extensionId === undefined ? {} : { extensionId: options.extensionId }),
+  };
   await writePackageJson(packageRoot, {
     name: packageName,
     version: '1.2.3',
     private: true,
-    ...(options.registry === false
-      ? {}
-      : {
-        exm: {
-          registry: REGISTRY_URL,
-        },
-      }),
+    ...(Object.keys(exm).length === 0 ? {} : { exm }),
   });
 
   return {
@@ -566,4 +707,15 @@ async function listTarballEntries(tarballPath: string): Promise<Array<{ path: st
   });
 
   return entries;
+}
+
+async function readTarballPackageJson(tarballPath: string): Promise<Record<string, unknown>> {
+  const extractDir = await mkWorkspaceDirectory('exm-publish-tarball-');
+  await extractTar({
+    file: tarballPath,
+    cwd: extractDir,
+    filter: (entryPath: string): boolean => entryPath === 'package' || entryPath === 'package/package.json',
+  });
+
+  return JSON.parse(await readFile(path.join(extractDir, 'package', 'package.json'), 'utf8')) as Record<string, unknown>;
 }

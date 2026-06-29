@@ -236,9 +236,9 @@ async function runPublishCommand(args: ArgumentsCamelCase<PublishCommandOptions>
   });
 
   if (result.dryRun) {
-    console.log(`Dry-run published ${result.packageName}@${result.version} to ${result.artifactUrl}.`);
+    console.log(`Dry-run published ${result.registryPackageName}@${result.version} to ${result.artifactUrl}.`);
   } else {
-    console.log(`Published ${result.packageName}@${result.version} to ${result.artifactUrl}.`);
+    console.log(`Published ${result.registryPackageName}@${result.version} to ${result.artifactUrl}.`);
   }
 }
 

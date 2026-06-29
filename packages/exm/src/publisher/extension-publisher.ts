@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -27,6 +27,7 @@ export interface DeployExtensionPackageOptions {
 
 export interface DeployExtensionPackageResult {
   readonly packageName: string;
+  readonly sourcePackageName: string;
   readonly version: string;
   readonly packageRoot: string;
   readonly workspaceRoot: string;
@@ -42,6 +43,8 @@ export interface PublishExtensionPackageOptions extends DeployExtensionPackageOp
 export interface PublishExtensionPackageResult extends DeployExtensionPackageResult {
   readonly dryRun: boolean;
   readonly registry: string;
+  readonly registryPackageName: string;
+  readonly extensionId?: string;
   readonly metadataUrl: string;
   readonly artifactUrl: string;
   readonly integrity: string;
@@ -103,6 +106,11 @@ interface NpmRegistryFetchModule {
   (url: string, options?: Record<string, unknown>): Promise<NpmRegistryFetchResponse>;
 }
 
+interface PublishIdentity {
+  readonly registryPackageName: string;
+  readonly extensionId?: string;
+}
+
 export async function deployExtensionPackage(
   options: DeployExtensionPackageOptions,
 ): Promise<DeployExtensionPackageResult> {
@@ -142,6 +150,7 @@ export async function deployExtensionPackage(
 
   return {
     packageName,
+    sourcePackageName: packageName,
     version,
     packageRoot,
     workspaceRoot,
@@ -154,18 +163,28 @@ export async function publishExtensionPackage(
 ): Promise<PublishExtensionPackageResult> {
   const deployment = await deployExtensionPackage(options);
   const dryRun = options.dryRun ?? false;
-  const registry = await resolvePublishRegistry(deployment.packageRoot, options.registry);
+  const packageExm = await readPackageExmConfig(deployment.packageRoot);
+  const registry = resolvePublishRegistry(packageExm, options.registry);
+  const identity = readPublishIdentity(packageExm, deployment.packageName);
   const registryClient = options.registryClient ?? new HttpExmRegistryPublishClient();
   const tempDir = await mkdtemp(path.join(tmpdir(), 'exm-publish-'));
 
   try {
-    const tarballPath = path.join(tempDir, createTarballFileName(deployment.packageName, deployment.version));
+    if (identity.registryPackageName !== deployment.packageName || identity.extensionId !== undefined) {
+      options.logger?.info(formatPublishIdentity(deployment.packageName, identity));
+    }
+
+    if (identity.extensionId !== undefined) {
+      await patchDeployPackageName(deployment.deployDir, deployment.packageName, identity.extensionId);
+    }
+
+    const tarballPath = path.join(tempDir, createTarballFileName(identity.registryPackageName, deployment.version));
     options.logger?.info(`create ${path.basename(tarballPath)}`);
     await createDeployTarball(deployment.deployDir, tarballPath);
     const artifact = await createSha512IntegrityFromFile(tarballPath);
     const publishRequest = {
       registry,
-      packageName: deployment.packageName,
+      packageName: identity.registryPackageName,
       version: deployment.version,
       tarballPath,
       integrity: artifact.integrity,
@@ -191,6 +210,8 @@ export async function publishExtensionPackage(
       ...deployment,
       dryRun,
       registry,
+      registryPackageName: identity.registryPackageName,
+      ...optionalStringField('extensionId', identity.extensionId),
       metadataUrl: published.metadataUrl,
       artifactUrl: published.artifactUrl,
       integrity: published.integrity,
@@ -287,23 +308,22 @@ function normalizePublishResult(value: unknown, request: ExmRegistryPublishPlanR
   };
 }
 
-async function readPackageExmRegistry(packageRoot: string): Promise<string> {
+async function readPackageExmConfig(packageRoot: string): Promise<Record<string, unknown> | undefined> {
   const packageJson = await readJsonObject(path.join(packageRoot, 'package.json'));
+  const exm = packageJson.exm;
 
-  if (!isJsonObject(packageJson.exm)) {
-    throw new Error('package.json exm.registry is required to publish to exm registry');
+  if (exm === undefined) {
+    return undefined;
   }
 
-  const registry = packageJson.exm.registry;
-
-  if (typeof registry !== 'string' || registry.length === 0) {
-    throw new Error('package.json exm.registry is required to publish to exm registry');
+  if (!isJsonObject(exm)) {
+    throw new Error('package.json exm field must be an object');
   }
 
-  return normalizeExmRegistryUrl(registry, 'package.json exm.registry');
+  return exm;
 }
 
-async function resolvePublishRegistry(packageRoot: string, registry: string | undefined): Promise<string> {
+function resolvePublishRegistry(packageExm: Record<string, unknown> | undefined, registry: string | undefined): string {
   if (registry !== undefined) {
     const trimmed = registry.trim();
 
@@ -314,7 +334,50 @@ async function resolvePublishRegistry(packageRoot: string, registry: string | un
     return normalizeExmRegistryUrl(trimmed, 'publish --registry');
   }
 
-  return await readPackageExmRegistry(packageRoot);
+  const packageRegistry = packageExm?.registry;
+
+  if (typeof packageRegistry !== 'string' || packageRegistry.length === 0) {
+    throw new Error('package.json exm.registry is required to publish to exm registry');
+  }
+
+  return normalizeExmRegistryUrl(packageRegistry, 'package.json exm.registry');
+}
+
+function readPublishIdentity(packageExm: Record<string, unknown> | undefined, sourcePackageName: string): PublishIdentity {
+  const registryPackageName = packageExm?.registryPackageName;
+  const extensionId = packageExm?.extensionId;
+
+  return {
+    registryPackageName: registryPackageName === undefined
+      ? validateRegistryPackageName(sourcePackageName, 'package.json name')
+      : validateRegistryPackageName(readRequiredStringValue(registryPackageName, 'package.json exm.registryPackageName'), 'package.json exm.registryPackageName'),
+    ...optionalStringField('extensionId', extensionId === undefined
+      ? undefined
+      : validatePublishExtensionId(readRequiredStringValue(extensionId, 'package.json exm.extensionId'), 'package.json exm.extensionId')),
+  };
+}
+
+async function patchDeployPackageName(deployDir: string, sourcePackageName: string, extensionId: string): Promise<void> {
+  const packageJsonPath = path.join(deployDir, 'package.json');
+  const packageJson = await readJsonObject(packageJsonPath);
+  const deployedName = readRequiredString(packageJson, 'name', '.deploy/package.json');
+
+  if (deployedName !== sourcePackageName) {
+    throw new Error(`.deploy/package.json name must match publish package "${sourcePackageName}": ${deployedName}`);
+  }
+
+  await writeFile(packageJsonPath, `${JSON.stringify({
+    ...packageJson,
+    name: extensionId,
+  }, null, 2)}\n`);
+}
+
+function formatPublishIdentity(sourcePackageName: string, identity: PublishIdentity): string {
+  return [
+    `publish identity source=${sourcePackageName}`,
+    `registry=${identity.registryPackageName}`,
+    identity.extensionId === undefined ? undefined : `extension=${identity.extensionId}`,
+  ].filter((part) => part !== undefined).join(' ');
 }
 
 async function validateDeployPackageJson(deployDir: string, packageName: string): Promise<JsonObject> {
@@ -443,11 +506,46 @@ function validatePackageName(packageName: string): string {
   return trimmed;
 }
 
+function validateRegistryPackageName(packageName: string, label: string): string {
+  const nameSegment = '[a-z0-9][a-z0-9._~-]*';
+  const packagePattern = new RegExp(`^(?:${nameSegment}|@${nameSegment}/${nameSegment})$`);
+
+  if (!packagePattern.test(packageName)) {
+    throw new Error(`${label} must be a valid npm package name`);
+  }
+
+  return packageName;
+}
+
+function validatePublishExtensionId(extensionId: string, label: string): string {
+  if (extensionId.length === 0) {
+    throw new Error(`${label} must be a non-empty string`);
+  }
+
+  if (extensionId === '.' || extensionId === '..') {
+    throw new Error(`Invalid ${label}: ${extensionId}`);
+  }
+
+  if (extensionId.includes('/') || extensionId.includes('\\') || extensionId.includes(':')) {
+    throw new Error(`${label} must be a single path segment`);
+  }
+
+  return extensionId;
+}
+
 function readRequiredString(packageJson: JsonObject, key: string, label: string): string {
   const value = packageJson[key];
 
   if (typeof value !== 'string' || value.length === 0) {
     throw new Error(`${label} must include a string ${key}`);
+  }
+
+  return value;
+}
+
+function readRequiredStringValue(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`${label} must be a non-empty string`);
   }
 
   return value;
@@ -471,6 +569,10 @@ function readResultPositiveInteger(value: unknown, label: string): number {
 
 function createTarballFileName(packageName: string, version: string): string {
   return `${packageName.replace(/^@/, '').replaceAll('/', '-')}-${version}.tgz`;
+}
+
+function optionalStringField<Key extends string>(key: Key, value: string | undefined): Partial<Record<Key, string>> {
+  return value === undefined ? {} : { [key]: value } as Record<Key, string>;
 }
 
 function appendPackageJsonPattern(pattern: string): string {
