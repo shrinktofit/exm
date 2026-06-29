@@ -1,4 +1,4 @@
-import { access, cp, mkdir, realpath, stat as getStat, symlink } from 'node:fs/promises';
+import { access, cp, lstat, mkdir, realpath, stat as getStat, symlink } from 'node:fs/promises';
 import path from 'node:path';
 import { platform } from 'node:os';
 
@@ -49,6 +49,18 @@ export async function isSameRealPath(leftPath: string, rightPath: string): Promi
   ]);
 
   return resolvedLeftPath === resolvedRightPath;
+}
+
+export async function isSymbolicLinkPath(path: string): Promise<boolean> {
+  try {
+    return (await lstat(path)).isSymbolicLink();
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') {
+      return false;
+    }
+
+    throw error;
+  }
 }
 
 export async function copyDirectory(sourcePath: string, targetPath: string): Promise<void> {

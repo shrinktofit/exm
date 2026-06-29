@@ -119,6 +119,198 @@ describe('installProjectExtensions npm source', () => {
     ]);
     await expect(readFile(path.join(projectRoot, 'extensions', 'company-tool', 'package.json'), 'utf8')).resolves.toContain('1.2.3');
   });
+
+  it('should reinstall npm targets when the install-state marker is missing', async () => {
+    /// @case
+    /// 1. A project has a target directory and lock entry that match the current npm spec.
+    /// 2. The local install-state marker is missing.
+    /// @expect
+    /// exm rebuilds the copied target from the locked npm package and records the installed state.
+    const workspace = await mkdtemp(path.join(tmpdir(), 'exm-npm-marker-missing-'));
+    tempRoots.push(workspace);
+    const projectRoot = path.join(workspace, 'project');
+    const targetPath = path.join(projectRoot, 'extensions', 'company-tool');
+    await mkdir(targetPath, { recursive: true });
+    await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({
+      name: '@company/old-tool',
+      version: '0.0.1',
+    }));
+    await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
+      exm: {
+        dependencies: {
+          'company-tool': 'npm:@company/tool@^1.2.0',
+        },
+      },
+    }));
+    await saveExmLock(projectRoot, {
+      lockFileVersion: 1,
+      extensions: {
+        'company-tool': {
+          spec: 'npm:@company/tool@^1.2.0',
+          resolution: {
+            version: '1.2.3',
+            resolved: 'https://registry.example.com/tool-1.2.3.tgz',
+            integrity: 'sha512-1.2.3',
+          },
+        },
+      },
+    });
+    const client = new FakeNpmPackageClient([]);
+
+    const result = await installProjectExtensions({
+      projectRoot,
+      registry: createNpmRegistry(client),
+      cacheRoot: path.join(workspace, 'cache'),
+    });
+
+    expect(result.installed).toEqual([
+      expect.objectContaining({
+        id: 'company-tool',
+        path: targetPath,
+        mode: 'copy',
+      }),
+    ]);
+    await expect(readFile(path.join(targetPath, 'package.json'), 'utf8')).resolves.toContain('"version":"1.2.3"');
+    await expect(readInstallState(projectRoot)).resolves.toEqual({
+      schemaVersion: 1,
+      extensions: {
+        'company-tool': {
+          sourceType: 'npm',
+          spec: 'npm:@company/tool@^1.2.0',
+          version: '1.2.3',
+          resolved: 'https://registry.example.com/tool-1.2.3.tgz',
+          integrity: 'sha512-1.2.3',
+        },
+      },
+    });
+  });
+
+  it('should skip npm targets only when lock and marker both match', async () => {
+    /// @case
+    /// 1. A project has a normal copied npm target with matching lock and install-state marker.
+    /// 2. exm install runs again with the same dependency spec.
+    /// @expect
+    /// exm skips the target because the local installed state matches the locked npm package.
+    const workspace = await mkdtemp(path.join(tmpdir(), 'exm-npm-marker-skip-'));
+    tempRoots.push(workspace);
+    const projectRoot = path.join(workspace, 'project');
+    const targetPath = path.join(projectRoot, 'extensions', 'company-tool');
+    await mkdir(targetPath, { recursive: true });
+    await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({
+      name: '@company/tool',
+      version: '1.2.3',
+    }));
+    await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
+      exm: {
+        dependencies: {
+          'company-tool': 'npm:@company/tool@^1.2.0',
+        },
+      },
+    }));
+    await saveExmLock(projectRoot, {
+      lockFileVersion: 1,
+      extensions: {
+        'company-tool': {
+          spec: 'npm:@company/tool@^1.2.0',
+          resolution: {
+            version: '1.2.3',
+            resolved: 'https://registry.example.com/tool-1.2.3.tgz',
+            integrity: 'sha512-1.2.3',
+          },
+        },
+      },
+    });
+    await writeInstallState(projectRoot, {
+      'company-tool': {
+        sourceType: 'npm',
+        spec: 'npm:@company/tool@^1.2.0',
+        version: '1.2.3',
+        resolved: 'https://registry.example.com/tool-1.2.3.tgz',
+        integrity: 'sha512-1.2.3',
+      },
+    });
+    const client = new FakeNpmPackageClient([]);
+
+    const result = await installProjectExtensions({
+      projectRoot,
+      registry: createNpmRegistry(client),
+      cacheRoot: path.join(workspace, 'cache'),
+    });
+
+    expect(result.installed).toEqual([]);
+    expect(result.skipped).toEqual(['company-tool']);
+    await expect(readFile(path.join(targetPath, 'package.json'), 'utf8')).resolves.toContain('"version":"1.2.3"');
+  });
+
+  it('should reinstall npm targets when the install-state marker does not match the lock', async () => {
+    /// @case
+    /// 1. A project has matching package.json and npm lock entries but the install-state marker records a different artifact.
+    /// 2. exm install runs again.
+    /// @expect
+    /// exm rebuilds the target and updates the marker to the locked npm package identity.
+    const workspace = await mkdtemp(path.join(tmpdir(), 'exm-npm-marker-mismatch-'));
+    tempRoots.push(workspace);
+    const projectRoot = path.join(workspace, 'project');
+    const targetPath = path.join(projectRoot, 'extensions', 'company-tool');
+    await mkdir(targetPath, { recursive: true });
+    await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({
+      name: '@company/tool',
+      version: '1.2.2',
+    }));
+    await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
+      exm: {
+        dependencies: {
+          'company-tool': 'npm:@company/tool@^1.2.0',
+        },
+      },
+    }));
+    await saveExmLock(projectRoot, {
+      lockFileVersion: 1,
+      extensions: {
+        'company-tool': {
+          spec: 'npm:@company/tool@^1.2.0',
+          resolution: {
+            version: '1.2.3',
+            resolved: 'https://registry.example.com/tool-1.2.3.tgz',
+            integrity: 'sha512-1.2.3',
+          },
+        },
+      },
+    });
+    await writeInstallState(projectRoot, {
+      'company-tool': {
+        sourceType: 'npm',
+        spec: 'npm:@company/tool@^1.2.0',
+        version: '1.2.2',
+        resolved: 'https://registry.example.com/tool-1.2.2.tgz',
+        integrity: 'sha512-1.2.2',
+      },
+    });
+    const client = new FakeNpmPackageClient([]);
+
+    const result = await installProjectExtensions({
+      projectRoot,
+      registry: createNpmRegistry(client),
+      cacheRoot: path.join(workspace, 'cache'),
+    });
+
+    expect(result.installed).toEqual([
+      expect.objectContaining({
+        id: 'company-tool',
+        path: targetPath,
+        mode: 'copy',
+      }),
+    ]);
+    await expect(readInstallState(projectRoot)).resolves.toMatchObject({
+      extensions: {
+        'company-tool': {
+          version: '1.2.3',
+          resolved: 'https://registry.example.com/tool-1.2.3.tgz',
+          integrity: 'sha512-1.2.3',
+        },
+      },
+    });
+  });
 });
 
 describe('updateProjectExtensions npm source', () => {
@@ -214,6 +406,15 @@ describe('updateProjectExtensions npm source', () => {
         },
       },
     });
+    await writeInstallState(projectRoot, {
+      'company-tool': {
+        sourceType: 'npm',
+        spec: 'npm:@company/tool@1.2.3',
+        version: '1.2.3',
+        resolved: 'https://registry.example.com/tool-1.2.3.tgz',
+        integrity: 'sha512-1.2.3',
+      },
+    });
     const client = new FakeNpmPackageClient([]);
     const registry = createNpmRegistry(client);
 
@@ -223,6 +424,66 @@ describe('updateProjectExtensions npm source', () => {
     expect(result.updated).toEqual([]);
     expect(result.skipped).toEqual(['company-tool']);
     await expect(access(targetPath)).resolves.toBeUndefined();
+  });
+
+  it('should rebuild exact npm versions during update when the install-state marker is missing', async () => {
+    /// @case
+    /// 1. A project has an exact npm dependency whose target and lock exist, but no install-state marker exists.
+    /// 2. exm update runs without a newer package resolution.
+    /// @expect
+    /// exm rebuilds the copied target from the locked npm package and records the marker instead of skipping stale contents.
+    const workspace = await mkdtemp(path.join(tmpdir(), 'exm-npm-update-marker-missing-'));
+    tempRoots.push(workspace);
+    const projectRoot = path.join(workspace, 'project');
+    const targetPath = path.join(projectRoot, 'extensions', 'company-tool');
+    await mkdir(targetPath, { recursive: true });
+    await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({
+      name: '@company/old-tool',
+      version: '0.0.1',
+    }));
+    await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
+      exm: {
+        dependencies: {
+          'company-tool': 'npm:@company/tool@1.2.3',
+        },
+      },
+    }));
+    await saveExmLock(projectRoot, {
+      lockFileVersion: 1,
+      extensions: {
+        'company-tool': {
+          spec: 'npm:@company/tool@1.2.3',
+          resolution: {
+            version: '1.2.3',
+            resolved: 'https://registry.example.com/tool-1.2.3.tgz',
+            integrity: 'sha512-1.2.3',
+          },
+        },
+      },
+    });
+    const client = new FakeNpmPackageClient([]);
+    const registry = createNpmRegistry(client);
+
+    const result = await updateProjectExtensions({ projectRoot, registry, cacheRoot: path.join(workspace, 'cache') });
+
+    expect(client.requests).toEqual([]);
+    expect(result.updated).toEqual([
+      expect.objectContaining({
+        id: 'company-tool',
+        path: targetPath,
+        mode: 'copy',
+      }),
+    ]);
+    expect(result.skipped).toEqual([]);
+    await expect(readInstallState(projectRoot)).resolves.toMatchObject({
+      extensions: {
+        'company-tool': {
+          version: '1.2.3',
+          resolved: 'https://registry.example.com/tool-1.2.3.tgz',
+          integrity: 'sha512-1.2.3',
+        },
+      },
+    });
   });
 });
 
@@ -271,4 +532,14 @@ function createNpmResolution(version: string): ResolvedNpmExtension {
     resolved: `https://registry.example.com/tool-${version}.tgz`,
     integrity: `sha512-${version}`,
   };
+}
+
+async function readInstallState(projectRoot: string): Promise<unknown> {
+  return JSON.parse(await readFile(path.join(projectRoot, 'temp', '.exm', 'install-state.json'), 'utf8'));
+}
+
+async function writeInstallState(projectRoot: string, extensions: Record<string, unknown>): Promise<void> {
+  const statePath = path.join(projectRoot, 'temp', '.exm', 'install-state.json');
+  await mkdir(path.dirname(statePath), { recursive: true });
+  await writeFile(statePath, `${JSON.stringify({ schemaVersion: 1, extensions }, null, 2)}\n`);
 }
