@@ -1,5 +1,11 @@
 # @bsgames/exm
 
+## 0.0.8
+
+### Patch Changes
+
+- 541f16f: Support separate exm registry package names and runtime extension ids during publish.
+
 ## 0.0.7
 
 ### Patch Changes
