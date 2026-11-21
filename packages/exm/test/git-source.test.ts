@@ -109,7 +109,7 @@ describe('createGitCacheKey', () => {
 });
 
 describe('GitExtensionSource', () => {
-  it('should clone repository-root extensions without a pinned ref directly into the target directory', async () => {
+  it('should clone repository-root extensions without a pinned ref as standalone installed checkouts', async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-git-root-head-'));
     tempRoots.push(workspace);
     const context = {
@@ -124,6 +124,10 @@ describe('GitExtensionSource', () => {
       expect(file).toBe('git');
       (calls as string[][]).push([...args]);
 
+      if (args[0] === 'show') {
+        return JSON.stringify({ vortex: { extensionId: 'test.sample' } });
+      }
+
       if (args[0] === 'rev-parse') {
         return resolvedCommit;
       }
@@ -132,9 +136,10 @@ describe('GitExtensionSource', () => {
         return;
       }
 
-      expect(args).toEqual(['clone', 'https://github.com/feb/example.git', targetPath]);
-      await mkdir(targetPath, { recursive: true });
-      await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({ name: 'sample-extension', vortex: { extensionId: 'test.sample' } }));
+      expect(args).toEqual(['clone', 'https://github.com/feb/example.git', expect.any(String)]);
+      const cloned = args.at(-1)!;
+      await mkdir(cloned, { recursive: true });
+      await writeFile(path.join(cloned, 'package.json'), JSON.stringify({ name: 'sample-extension', vortex: { extensionId: 'test.sample' } }));
     });
 
     const resolved = await source.resolve({
@@ -156,13 +161,13 @@ describe('GitExtensionSource', () => {
       },
     });
     expect(calls).toEqual([
-      ['clone', 'https://github.com/feb/example.git', targetPath],
+      ['clone', 'https://github.com/feb/example.git', expect.any(String)],
       ['rev-parse', 'HEAD'],
     ]);
     await expect(readFile(path.join(targetPath, 'package.json'), 'utf8')).resolves.toContain('sample-extension');
   });
 
-  it('should clone repository-root extensions directly into the target directory', async () => {
+  it('should clone repository-root extensions as standalone installed checkouts', async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-git-root-'));
     tempRoots.push(workspace);
     const context = {
@@ -175,6 +180,10 @@ describe('GitExtensionSource', () => {
     const source = new GitExtensionSource(async (file, args) => {
       expect(file).toBe('git');
 
+      if (args[0] === 'show') {
+        return JSON.stringify({ vortex: { extensionId: 'test.sample' } });
+      }
+
       if (args[0] === 'rev-parse') {
         return resolvedCommit;
       }
@@ -183,9 +192,10 @@ describe('GitExtensionSource', () => {
         return;
       }
 
-      expect(args.at(-1)).toBe(targetPath);
-      await mkdir(targetPath, { recursive: true });
-      await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({ name: 'sample-extension', vortex: { extensionId: 'test.sample' } }));
+      expect(args.at(-1)).toBeTypeOf('string');
+      const cloned = args.at(-1)!;
+      await mkdir(cloned, { recursive: true });
+      await writeFile(path.join(cloned, 'package.json'), JSON.stringify({ name: 'sample-extension', vortex: { extensionId: 'test.sample' } }));
     });
 
     const resolved = await source.resolve({
@@ -222,6 +232,10 @@ describe('GitExtensionSource', () => {
     const source = new GitExtensionSource(async (file, args) => {
       expect(file).toBe('git');
       (calls as string[][]).push([...args]);
+
+      if (args[0] === 'show') {
+        return JSON.stringify({ vortex: { extensionId: 'test.sample' } });
+      }
 
       if (args[0] === 'rev-parse') {
         return resolvedCommit;
@@ -278,6 +292,10 @@ describe('GitExtensionSource', () => {
     await mkdir(context.projectRoot, { recursive: true });
     const source = new GitExtensionSource(async (file, args) => {
       expect(file).toBe('git');
+
+      if (args[0] === 'show') {
+        return JSON.stringify({ vortex: { extensionId: 'test.sample' } });
+      }
 
       if (args[0] === 'rev-parse') {
         return resolvedCommit;

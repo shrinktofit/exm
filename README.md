@@ -55,6 +55,8 @@ On a case-insensitive filesystem, EXM rejects an install whose target directory 
 
 EXM installs managed extensions into `<project>/extensions/<extensionId>`. This is EXM's directory convention, not a Vortex identity requirement: source directory names and package names may differ from the ID. Manually installed Vortex extensions can live in differently named directories.
 
+Git installations validate identity before exposing the checkout as an extension. Updates validate the incoming revision before changing installed files, so an identity rejection preserves the installed content and lock.
+
 `exm` caches downloaded and extracted artifacts under `~/.exm/cache` by default. CI can persist that directory between runs, or set `EXM_CACHE_ROOT=<path>` to use a different cache directory such as a workspace-local `.exm/cache`.
 
 For copied registry and `npm:` installs, `exm` records local installed artifact identity in `<project>/temp/.exm/install-state.json`; deleting that file forces one rebuild check without changing `exm-lock.yaml`.

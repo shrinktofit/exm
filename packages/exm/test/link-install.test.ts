@@ -232,6 +232,10 @@ describe('installProjectExtensions link source', () => {
         expect(file).toBe('git');
         (calls as string[][]).push([...args]);
 
+        if (args[0] === 'show') {
+          return JSON.stringify({ vortex: { extensionId: 'test.sample' } });
+        }
+
         if (args[0] === 'rev-parse') {
           return resolvedCommit;
         }
@@ -261,7 +265,7 @@ describe('installProjectExtensions link source', () => {
       }),
     ]);
     expect(calls).toEqual([
-      ['clone', 'https://github.com/feb/example.git', targetPath],
+      ['clone', 'https://github.com/feb/example.git', expect.any(String)],
       ['rev-parse', 'HEAD'],
     ]);
     expect(lockContent.lockFileVersion).toBe(1);
@@ -294,6 +298,10 @@ describe('installProjectExtensions link source', () => {
         expect(file).toBe('git');
         (calls as string[][]).push([...args]);
 
+        if (args[0] === 'show') {
+          return JSON.stringify({ vortex: { extensionId: 'test.sample' } });
+        }
+
         if (args[0] === 'rev-parse') {
           return resolvedCommit;
         }
@@ -309,13 +317,15 @@ describe('installProjectExtensions link source', () => {
     };
 
     expect(calls).toEqual([
-      ['clone', '--no-checkout', 'https://github.com/feb/example.git', targetPath],
+      ['clone', '--no-checkout', 'https://github.com/feb/example.git', expect.any(String)],
       ['fetch', '--depth=1', 'origin', 'main'],
+      ['show', 'FETCH_HEAD:package.json'],
       ['checkout', '--force', 'FETCH_HEAD'],
       ['rev-parse', 'HEAD'],
     ]);
     expect(lockContent.extensions['test.sample']?.spec).toBe('https://github.com/feb/example.git#main');
     expect(lockContent.extensions['test.sample']?.resolution?.commit).toBe(resolvedCommit);
+    expect(JSON.parse(await readFile(path.join(targetPath, 'package.json'), 'utf8')).vortex.extensionId).toBe('test.sample');
   });
 
   it('should adopt an existing unmanaged link target when it matches the current spec', async () => {

@@ -1,13 +1,17 @@
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { access, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
+import { pathToFileURL } from 'node:url';
+import { promisify } from 'node:util';
 import { extract } from 'tar';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ExmRegistrySource, ExtensionSourceRegistry, installProjectExtensions, publishExtensionPackage, updateProjectExtensions } from '../src/index.js';
 import type { ExmRegistryPublishRequest } from '../src/index.js';
 
 const roots: string[] = [];
+const gitCommand = promisify(execFile);
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
@@ -26,6 +30,17 @@ async function workspace(): Promise<{ root: string; extension: string }> {
     exm: { registry: 'https://registry.example/' },
   }));
   return { root, extension };
+}
+
+async function commitGitManifest(repository: string, id: string | undefined, manifestPath = 'package.json'): Promise<void> {
+  const file = path.join(repository, manifestPath);
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, JSON.stringify({ name: '@fixture/source-package', vortex: { extensionId: id } }));
+  await gitCommand('git', ['add', manifestPath], { cwd: repository });
+  await gitCommand('git', [
+    '-c', 'user.name=EXM Test', '-c', 'user.email=exm-test@example.invalid',
+    '-c', 'commit.gpgsign=false', 'commit', '-m', 'Write extension manifest',
+  ], { cwd: repository });
 }
 
 describe('one persistent identity for EXM publishing and installation', () => {
@@ -146,6 +161,46 @@ describe('one persistent identity for EXM publishing and installation', () => {
       await expect(readFile(path.join(root, 'extensions/Example.Tools/package.json'))).rejects.toThrow(/ENOENT/);
     },
   );
+
+  it.each([
+    { ref: '', id: 'Example.Other' },
+    { ref: '#main', id: undefined },
+  ])('does not leave a rejected Git extension installed: $ref / $id', async ({ ref, id }) => {
+    /// @case A real Git repository omits the requested ID or declares another valid ID.
+    /// @expect Rejected installation leaves no extension at the public installation path.
+    const { root, extension } = await workspace();
+    await gitCommand('git', ['init', '--initial-branch=main'], { cwd: extension });
+    await commitGitManifest(extension, id);
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({
+      exm: { dependencies: { 'Example.Tools': `git+${pathToFileURL(extension).href}${ref}` } },
+    }));
+    await expect(installProjectExtensions({ projectRoot: root })).rejects.toThrow(/vortex.extensionId|identity mismatch/);
+    await expect(access(path.join(root, 'extensions/Example.Tools'))).rejects.toThrow(/ENOENT/);
+  });
+
+  it.each([
+    { ref: '', manifestPath: 'package.json' },
+    { ref: '#main:packages/tool', manifestPath: 'packages/tool/package.json' },
+  ])('preserves the installed Git extension when an update changes identity: $ref', async ({ ref, manifestPath }) => {
+    /// @case A root checkout or linked monorepo subdirectory has a valid installed identity, then Git changes it.
+    /// @expect Rejected update preserves the installed manifest, local files and existing lock.
+    const { root, extension } = await workspace();
+    await gitCommand('git', ['init', '--initial-branch=main'], { cwd: extension });
+    await commitGitManifest(extension, 'Example.Tools', manifestPath);
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({
+      exm: { dependencies: { 'Example.Tools': `git+${pathToFileURL(extension).href}${ref}` } },
+    }));
+    await installProjectExtensions({ projectRoot: root, cacheRoot: path.join(root, 'cache') });
+    const target = path.join(root, 'extensions/Example.Tools');
+    const manifestBefore = await readFile(path.join(target, 'package.json'), 'utf8');
+    const lockBefore = await readFile(path.join(root, 'exm-lock.yaml'), 'utf8');
+    await writeFile(path.join(target, 'local-notes.txt'), 'keep local content');
+    await commitGitManifest(extension, 'Example.Other', manifestPath);
+    await expect(updateProjectExtensions({ projectRoot: root, cacheRoot: path.join(root, 'cache') })).rejects.toThrow(/identity mismatch/);
+    expect(await readFile(path.join(target, 'package.json'), 'utf8')).toBe(manifestBefore);
+    expect(await readFile(path.join(target, 'local-notes.txt'), 'utf8')).toBe('keep local content');
+    expect(await readFile(path.join(root, 'exm-lock.yaml'), 'utf8')).toBe(lockBefore);
+  });
 
   it.runIf(process.platform === 'win32')('rejects case-colliding target directories without replacing the existing extension', async () => {
     /// @case Two different IDs map to the same Windows directory name.

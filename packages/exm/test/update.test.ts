@@ -67,6 +67,10 @@ describe('updateProjectExtensions', () => {
         expect(file).toBe('git');
         (calls as string[][]).push([...args]);
 
+        if (args[0] === 'show') {
+          return JSON.stringify({ vortex: { extensionId: 'test.sample' } });
+        }
+
         if (args[0] === 'rev-parse') {
           return resolvedCommit;
         }
@@ -90,7 +94,9 @@ describe('updateProjectExtensions', () => {
       },
     ]);
     expect(calls).toEqual([
-      ['pull', '--ff-only'],
+      ['fetch'],
+      ['show', '@{upstream}:package.json'],
+      ['merge', '--ff-only', '@{upstream}'],
       ['rev-parse', 'HEAD'],
     ]);
     await expect(readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')).resolves.toContain('lockFileVersion: 1');
@@ -123,6 +129,10 @@ describe('updateProjectExtensions', () => {
         expect(file).toBe('git');
         (calls as string[][]).push([...args]);
 
+        if (args[0] === 'show') {
+          return JSON.stringify({ vortex: { extensionId: 'test.sample' } });
+        }
+
         if (args[0] === 'rev-parse') {
           return resolvedCommit;
         }
@@ -149,7 +159,7 @@ describe('updateProjectExtensions', () => {
     ]);
     expect(result.adopted).toEqual([]);
     expect(calls).toEqual([
-      ['clone', 'https://github.com/feb/example.git', targetPath],
+      ['clone', 'https://github.com/feb/example.git', expect.any(String)],
       ['rev-parse', 'HEAD'],
     ]);
     await expect(readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')).resolves.toContain('lockFileVersion: 1');
@@ -192,6 +202,10 @@ describe('updateProjectExtensions', () => {
           await writeFile(path.join(cloned, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
         }
         expect(file).toBe('git');
+
+        if (args[0] === 'show') {
+          return JSON.stringify({ vortex: { extensionId: 'test.sample' } });
+        }
 
         if (args[0] === 'rev-parse') {
           return resolvedCommit;
@@ -294,6 +308,10 @@ describe('updateProjectExtensions', () => {
         expect(file).toBe('git');
         (calls as string[][]).push([...args]);
 
+        if (args[0] === 'show') {
+          return JSON.stringify({ vortex: { extensionId: 'test.sample' } });
+        }
+
         if (args[0] === 'rev-parse') {
           return resolvedCommit;
         }
@@ -319,7 +337,9 @@ describe('updateProjectExtensions', () => {
       }),
     ]);
     expect(calls).toEqual([
-      ['pull', '--ff-only'],
+      ['fetch'],
+      ['show', '@{upstream}:package.json'],
+      ['merge', '--ff-only', '@{upstream}'],
       ['rev-parse', 'HEAD'],
     ]);
     await expect(readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')).resolves.toContain('test.sample:');
@@ -360,6 +380,10 @@ describe('updateProjectExtensions', () => {
           await writeFile(path.join(cloned, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
         }
         expect(file).toBe('git');
+
+        if (args[0] === 'show') {
+          return JSON.stringify({ vortex: { extensionId: 'test.sample' } });
+        }
 
         if (args[0] === 'rev-parse') {
           return resolvedCommit;

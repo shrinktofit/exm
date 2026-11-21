@@ -1,9 +1,10 @@
 import { Buffer } from 'node:buffer';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { assertExtensionIdentity } from '../config/extension-manifest.js';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { assertExtensionIdentity, readManifestExtensionId } from '../config/extension-manifest.js';
+import { isJsonObject } from '../config/package-json.js';
 import { assertDirectory, assertPathInside, createDirectoryLink, isSameRealPath, pathExists } from '../fs/path.js';
 import { elapsedMs, nowMs } from '../timing.js';
 import { withSupportedDependencySpecifiers } from './specifier-help.js';
@@ -73,7 +74,7 @@ export class GitExtensionSource implements ExtensionSource {
         return undefined;
       }
 
-      const commit = await ensureGitCheckout(git, targetPath, this.commandRunner);
+      const commit = await ensureGitCheckout(git, targetPath, resolved.id, this.commandRunner);
       await assertExtensionIdentity(targetPath, resolved.id);
 
       return {
@@ -88,7 +89,7 @@ export class GitExtensionSource implements ExtensionSource {
 
     const checkoutPath = path.join(context.cacheRoot, 'git', createGitCacheKey(git));
     const sourcePath = resolveGitSourcePath(checkoutPath, git);
-    const commit = await ensureGitCheckout(git, checkoutPath, this.commandRunner);
+    const commit = await ensureGitCheckout(git, checkoutPath, resolved.id, this.commandRunner);
     await assertDirectory(sourcePath, `git source for "${resolved.id}"`);
     await assertExtensionIdentity(sourcePath, resolved.id);
 
@@ -116,8 +117,23 @@ export class GitExtensionSource implements ExtensionSource {
 
     if (git.subpath === undefined) {
       const gitSyncStartMs = nowMs();
-      const commit = await ensureGitCheckout(git, targetPath, this.commandRunner);
-      await assertExtensionIdentity(targetPath, resolved.id);
+      let commit: string;
+      if (await pathExists(targetPath)) {
+        commit = await ensureGitCheckout(git, targetPath, resolved.id, this.commandRunner);
+        await assertExtensionIdentity(targetPath, resolved.id);
+      } else {
+        await mkdir(context.installRoot, { recursive: true });
+        // The container has no manifest, so extension scanning cannot load the pending checkout.
+        const staging = await mkdtemp(path.join(context.installRoot, '.exm-git-'));
+        const checkout = path.join(staging, 'checkout');
+        try {
+          commit = await ensureGitCheckout(git, checkout, resolved.id, this.commandRunner);
+          await assertExtensionIdentity(checkout, resolved.id);
+          await rename(checkout, targetPath);
+        } finally {
+          await rm(staging, { recursive: true, force: true });
+        }
+      }
       const gitSyncMs = elapsedMs(gitSyncStartMs);
 
       return {
@@ -137,7 +153,7 @@ export class GitExtensionSource implements ExtensionSource {
     const sourcePath = resolveGitSourcePath(checkoutPath, git);
     const cacheHit = await pathExists(checkoutPath);
     const gitSyncStartMs = nowMs();
-    const commit = await ensureGitCheckout(git, checkoutPath, this.commandRunner);
+    const commit = await ensureGitCheckout(git, checkoutPath, resolved.id, this.commandRunner);
     const gitSyncMs = elapsedMs(gitSyncStartMs);
     await assertDirectory(sourcePath, `git source for "${resolved.id}"`);
     await assertExtensionIdentity(sourcePath, resolved.id);
@@ -195,6 +211,7 @@ export function createGitCacheKey(specifier: GitSpecifier): string {
 async function ensureGitCheckout(
   specifier: GitSpecifier,
   checkoutPath: string,
+  extensionId: string,
   runCommand: RunCommand,
 ): Promise<string> {
   const exists = await pathExists(checkoutPath);
@@ -204,16 +221,29 @@ async function ensureGitCheckout(
     await runCommand('git', createGitCloneArgs(specifier, checkoutPath));
   }
 
-  if (specifier.ref === undefined) {
-    if (exists) {
-      await runCommand('git', ['pull', '--ff-only'], { cwd: checkoutPath });
-    }
-
+  if (specifier.ref === undefined && !exists) {
     return await readGitHeadCommit(checkoutPath, runCommand);
   }
 
-  await runCommand('git', ['fetch', '--depth=1', 'origin', specifier.ref], { cwd: checkoutPath });
-  await runCommand('git', ['checkout', '--force', 'FETCH_HEAD'], { cwd: checkoutPath });
+  const revision = specifier.ref === undefined ? '@{upstream}' : 'FETCH_HEAD';
+  const fetchArgs = specifier.ref === undefined
+    ? ['fetch']
+    : ['fetch', '--depth=1', 'origin', specifier.ref];
+  await runCommand('git', fetchArgs, { cwd: checkoutPath });
+  const manifestPath = path.posix.join(specifier.subpath ?? '', 'package.json');
+  const label = `Git manifest ${revision}:${manifestPath}`;
+  const manifest: unknown = JSON.parse(String(await runCommand('git', ['show', `${revision}:${manifestPath}`], { cwd: checkoutPath })));
+  if (!isJsonObject(manifest)) {
+    throw new Error(`${label} must contain a JSON object`);
+  }
+  const incomingId = readManifestExtensionId(manifest, label);
+  if (incomingId !== extensionId) {
+    throw new Error(`Extension identity mismatch in ${label}: expected '${extensionId}', found '${incomingId}'`);
+  }
+  const checkoutArgs = specifier.ref === undefined
+    ? ['merge', '--ff-only', revision]
+    : ['checkout', '--force', revision];
+  await runCommand('git', checkoutArgs, { cwd: checkoutPath });
 
   return await readGitHeadCommit(checkoutPath, runCommand);
 }
