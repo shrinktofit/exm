@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { assertExtensionIdentity } from '../config/extension-manifest.js';
 import { assertDirectory, createDirectoryLink, isSameRealPath } from '../fs/path.js';
 import type { ExtensionRequest, ExtensionSource, MaterializedExtension, ResolvedExtension, SourceContext } from './source.js';
 
@@ -18,6 +19,7 @@ export class LinkExtensionSource implements ExtensionSource {
 
     const sourcePath = path.resolve(context.projectRoot, rawPath);
     await assertDirectory(sourcePath, `link source for "${request.id}"`);
+    await assertExtensionIdentity(sourcePath, request.id);
 
     return {
       id: request.id,

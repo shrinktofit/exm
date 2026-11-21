@@ -48,7 +48,7 @@ describe('initProjectConfig', () => {
     const projectRoot = await createTempProject({
       exm: {
         dependencies: {
-          sample: 'link:../sample',
+          'test.sample': 'link:../sample',
         },
       },
     });
@@ -59,7 +59,7 @@ describe('initProjectConfig', () => {
     expect(result.status).toBe('unchanged');
     expect(packageJson.exm).toEqual({
       dependencies: {
-        sample: 'link:../sample',
+        'test.sample': 'link:../sample',
       },
     });
   });
@@ -119,7 +119,7 @@ describe('initProjectConfig', () => {
     const projectRoot = await createTempProject({});
     await writeFile(path.join(projectRoot, EXM_LOCAL_FILE), [
       'dependencies:',
-      '  localOnly: link:../local-only',
+      '  test.localOnly: link:../local-only',
       '',
     ].join('\n'));
 
@@ -132,7 +132,7 @@ describe('initProjectConfig', () => {
     expect(result.status).toBe('unchanged');
     expect(localConfig).toEqual({
       dependencies: {
-        localOnly: 'link:../local-only',
+        'test.localOnly': 'link:../local-only',
       },
     });
   });

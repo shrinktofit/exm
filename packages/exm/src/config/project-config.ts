@@ -3,6 +3,7 @@ import path from 'node:path';
 import { parse } from 'yaml';
 import { pathExists } from '../fs/path.js';
 import { readJsonObject, isJsonObject } from './package-json.js';
+import { validateExtensionId } from './extension-manifest.js';
 
 export const EXM_LOCAL_FILE = 'exm.local.yaml';
 export const EXM_INSTALL_DIR = 'extensions';
@@ -70,20 +71,6 @@ export function readDependencies(
   }
 
   return dependencies;
-}
-
-export function validateExtensionId(id: string): void {
-  if (id.length === 0) {
-    throw new Error('exm dependency id must not be empty');
-  }
-
-  if (id === '.' || id === '..') {
-    throw new Error(`Invalid exm dependency id "${id}"`);
-  }
-
-  if (id.includes('/') || id.includes('\\') || id.includes(':')) {
-    throw new Error(`exm dependency id "${id}" must be a single path segment`);
-  }
 }
 
 function readExmObject(value: unknown, label: string): Record<string, unknown> | undefined {

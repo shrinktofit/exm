@@ -1,3 +1,4 @@
+import { isExmRegistryVersionRange } from '../sources/exm-registry-source.js';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parse, stringify } from 'yaml';
@@ -158,7 +159,7 @@ function normalizeResolutionForSpec(
   spec: string,
   value: unknown,
 ): ExmLockResolution | undefined {
-  if (spec.startsWith('exm:')) {
+  if (isExmRegistryVersionRange(spec)) {
     const resolution = readResolutionRecord(lockFileName, id, value);
 
     return {

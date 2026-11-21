@@ -22,9 +22,9 @@ Add exm config to the Cocos Creator project `package.json`. The registry is the 
   "exm": {
     "registry": "https://exm.example/",
     "dependencies": {
-      "some-extension": "exm:@org/some-extension@^1.0.0",
-      "local-tool": "link:../local-tool",
-      "git-tool": "git+https://github.com/org/repo.git#main:extensions/tool"
+      "org.some-extension": "^1.0.0",
+      "org.local-tool": "link:../local-tool",
+      "org.git-tool": "git+https://github.com/org/repo.git#main:extensions/tool"
     }
   }
 }
@@ -47,30 +47,37 @@ exm i -C path/to/project
 exm update
 ```
 
-Dependency keys are extension ids and must be single directory names. Installed extensions always go to `<project>/extensions/<extension-id>`.
+Dependency keys are the extensions' manifest `vortex.extensionId` values. Registry dependencies contain only a semver version or range; `link:`, `git+` and `npm:` select explicit alternative sources. EXM checks that the source manifest declares the exact dependency ID, including case.
+
+IDs contain ASCII letters, digits, hyphens and dots, with at least two dot-separated segments. Each segment starts with a letter and cannot end in a hyphen. IDs are case-sensitive; uppercase letters are allowed.
+
+On a case-insensitive filesystem, EXM rejects an install whose target directory collides with a differently cased ID; it does not replace the existing extension. The registry's file storage preserves both identities independently.
+
+EXM installs managed extensions into `<project>/extensions/<extensionId>`. This is EXM's directory convention, not a Vortex identity requirement: source directory names and package names may differ from the ID. Manually installed Vortex extensions can live in differently named directories.
 
 `exm` caches downloaded and extracted artifacts under `~/.exm/cache` by default. CI can persist that directory between runs, or set `EXM_CACHE_ROOT=<path>` to use a different cache directory such as a workspace-local `.exm/cache`.
 
-For copied `exm:` and `npm:` installs, `exm` records local installed artifact identity in `<project>/temp/.exm/install-state.json`; deleting that file forces one rebuild check without changing `exm-lock.yaml`.
+For copied registry and `npm:` installs, `exm` records local installed artifact identity in `<project>/temp/.exm/install-state.json`; deleting that file forces one rebuild check without changing `exm-lock.yaml`.
 
 ## Publishing Extensions
 
 `exm publish` reads the exm registry server from `package.json#exm.registry`, unless `--registry` is provided. It still deploys and packs locally, but the registry server owns artifact upload and package metadata updates.
 
-Publish can split the source package name from the registry package name and the runtime extension id:
+Publishing uses `vortex.extensionId` as the registry identity. The source package name selects the pnpm workspace package and is preserved in the artifact:
 
 ```json
 {
   "name": "@org/source-package",
+  "vortex": {
+    "extensionId": "org.some-extension"
+  },
   "exm": {
-    "registry": "https://exm.example/",
-    "registryPackageName": "@org/some-extension",
-    "extensionId": "some-extension"
+    "registry": "https://exm.example/"
   }
 }
 ```
 
-`registryPackageName` is the package name used by the exm registry and by install specs such as `exm:@org/some-extension@^1.0.0`. `extensionId` patches only the generated publish artifact `package.json#name`, for Cocos/Vortex extension identity. Both fields are optional.
+Every extension must declare `vortex.extensionId`. The removed `exm.registryPackageName` and `exm.extensionId` fields are rejected when deploying or publishing. EXM does not derive the ID from `name` or rewrite `name` in the generated artifact.
 
 From either the workspace root or the target package root:
 
@@ -83,18 +90,25 @@ exm publish @scope/extension-name
 
 Use `--dry-run` to validate the package and print the planned remote URLs without publishing.
 
+### Migrating existing projects
+
+Publish each extension under its manifest ID, remove the two old publishing fields, and change project dependency keys to those IDs. Replace `exm:@org/package@^1.0.0` with `^1.0.0`. Update local override keys and any paths that refer to EXM-managed directories.
+
+Old registry names are not aliases for extension IDs. Existing artifacts must be published under the new identity before a registry installation can succeed. Remove obsolete lock entries and regenerate them after publication; do not reuse an old artifact's integrity for a changed manifest. With a local override, installation generates `exm-lock.local.yaml` instead of the shared registry lock.
+
+Remove old managed directories after verifying their contents or link targets, so Vortex does not discover duplicate copies of an extension during the migration. This directory cleanup is a project migration step; EXM does not delete arbitrary unmanaged extensions.
+
 ## Registry Server
 
 The registry server lives in `packages/exm-registry-server`. It exposes npm-compatible read endpoints and a small exm publish API:
 
 ```text
-GET  /@scope%2fpkg
-GET  /@scope/pkg
-GET  /@scope/pkg/<version>/extension.tgz
+GET  /org.some-extension
+GET  /org.some-extension/<version>/extension.tgz
 GET  /-/v1/search?text=...
 GET  /-/all
 POST /-/exm/v1/publish/plan
-PUT  /-/exm/v1/publish?name=@scope/pkg&version=1.2.3
+PUT  /-/exm/v1/publish?name=org.some-extension&version=1.2.3
 ```
 
 The package metadata response includes npm-compatible `name`, `versions`, `dist.tarball`, and `dist.integrity`, plus `exm.artifact` metadata with `type`, `path`, `integrity`, and `size`.

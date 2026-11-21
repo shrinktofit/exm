@@ -118,7 +118,7 @@ describe('GitExtensionSource', () => {
       cacheRoot: path.join(workspace, 'project', '.exm', 'cache'),
     };
     await mkdir(context.projectRoot, { recursive: true });
-    const targetPath = path.join(context.installRoot, 'sample');
+    const targetPath = path.join(context.installRoot, 'test.sample');
     const calls: readonly string[][] = [];
     const source = new GitExtensionSource(async (file, args) => {
       expect(file).toBe('git');
@@ -134,18 +134,18 @@ describe('GitExtensionSource', () => {
 
       expect(args).toEqual(['clone', 'https://github.com/feb/example.git', targetPath]);
       await mkdir(targetPath, { recursive: true });
-      await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({ name: 'sample-extension' }));
+      await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({ name: 'sample-extension', vortex: { extensionId: 'test.sample' } }));
     });
 
     const resolved = await source.resolve({
-      id: 'sample',
+      id: 'test.sample',
       spec: 'https://github.com/feb/example.git',
     }, context);
     const materialized = await source.materialize(resolved, context);
 
     expect(resolved.reference).toBe('HEAD');
     expect(materialized).toEqual({
-      id: 'sample',
+      id: 'test.sample',
       path: targetPath,
       mode: 'clone',
       git: {
@@ -171,7 +171,7 @@ describe('GitExtensionSource', () => {
       cacheRoot: path.join(workspace, 'project', '.exm', 'cache'),
     };
     await mkdir(context.projectRoot, { recursive: true });
-    const targetPath = path.join(context.installRoot, 'sample');
+    const targetPath = path.join(context.installRoot, 'test.sample');
     const source = new GitExtensionSource(async (file, args) => {
       expect(file).toBe('git');
 
@@ -185,18 +185,18 @@ describe('GitExtensionSource', () => {
 
       expect(args.at(-1)).toBe(targetPath);
       await mkdir(targetPath, { recursive: true });
-      await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({ name: 'sample-extension' }));
+      await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({ name: 'sample-extension', vortex: { extensionId: 'test.sample' } }));
     });
 
     const resolved = await source.resolve({
-      id: 'sample',
+      id: 'test.sample',
       spec: 'https://github.com/feb/example.git#abcdef1',
     }, context);
     const materialized = await source.materialize(resolved, context);
 
     expect(resolved.sourcePath).toBe(targetPath);
     expect(materialized).toEqual({
-      id: 'sample',
+      id: 'test.sample',
       path: targetPath,
       mode: 'clone',
       git: {
@@ -236,19 +236,19 @@ describe('GitExtensionSource', () => {
       expect(checkoutPath).toBeTypeOf('string');
       const extensionPath = path.join(checkoutPath as string, 'packages', 'sample-extension');
       await mkdir(extensionPath, { recursive: true });
-      await writeFile(path.join(extensionPath, 'package.json'), JSON.stringify({ name: 'sample-extension' }));
+      await writeFile(path.join(extensionPath, 'package.json'), JSON.stringify({ name: 'sample-extension', vortex: { extensionId: 'test.sample' } }));
     });
 
     const resolved = await source.resolve({
-      id: 'sample',
+      id: 'test.sample',
       spec: 'https://github.com/feb/example.git#:packages/sample-extension',
     }, context);
     const materialized = await source.materialize(resolved, context);
 
     await expect(readlink(materialized.path)).resolves.toBeTruthy();
     expect(materialized).toEqual({
-      id: 'sample',
-      path: path.join(context.installRoot, 'sample'),
+      id: 'test.sample',
+      path: path.join(context.installRoot, 'test.sample'),
       mode: 'link',
       git: {
         commit: resolvedCommit,
@@ -291,12 +291,12 @@ describe('GitExtensionSource', () => {
       expect(checkoutPath).toBeTypeOf('string');
       const extensionPath = path.join(checkoutPath as string, 'packages', 'sample-extension');
       await mkdir(extensionPath, { recursive: true });
-      await writeFile(path.join(extensionPath, 'package.json'), JSON.stringify({ name: 'sample-extension' }));
+      await writeFile(path.join(extensionPath, 'package.json'), JSON.stringify({ name: 'sample-extension', vortex: { extensionId: 'test.sample' } }));
       await writeFile(path.join(checkoutPath as string, 'README.md'), 'repo root');
     });
 
     const resolved = await source.resolve({
-      id: 'sample',
+      id: 'test.sample',
       spec: 'https://github.com/feb/example.git#abcdef1:packages/sample-extension',
     }, context);
     const materialized = await source.materialize(resolved, context);
@@ -307,8 +307,8 @@ describe('GitExtensionSource', () => {
     await expect(readlink(materialized.path)).resolves.toBeTruthy();
     expect(await realpath(materialized.path)).toBe(path.join(checkoutPath, 'packages', 'sample-extension'));
     expect(materialized).toEqual({
-      id: 'sample',
-      path: path.join(context.installRoot, 'sample'),
+      id: 'test.sample',
+      path: path.join(context.installRoot, 'test.sample'),
       mode: 'link',
       git: {
         commit: resolvedCommit,

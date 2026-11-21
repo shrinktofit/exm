@@ -27,7 +27,7 @@ describe('installProjectExtensions npm source', () => {
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          'company-tool': 'npm:@company/tool@^1.2.0',
+          'test.company-tool': 'npm:@company/tool@^1.2.0',
         },
       },
     }));
@@ -35,7 +35,7 @@ describe('installProjectExtensions npm source', () => {
     const registry = createNpmRegistry(client);
 
     const result = await installProjectExtensions({ projectRoot, registry, cacheRoot: path.join(workspace, 'cache') });
-    const targetPath = path.join(projectRoot, 'extensions', 'company-tool');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.company-tool');
     const lockContent = parse(await readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')) as {
       readonly lockFileVersion: number;
       readonly extensions: Record<string, {
@@ -51,7 +51,7 @@ describe('installProjectExtensions npm source', () => {
 
     expect(result.installed).toEqual([
       expect.objectContaining({
-        id: 'company-tool',
+        id: 'test.company-tool',
         path: targetPath,
         mode: 'copy',
         cache: expect.objectContaining({
@@ -61,7 +61,7 @@ describe('installProjectExtensions npm source', () => {
     ]);
     await expect(readFile(path.join(targetPath, 'package.json'), 'utf8')).resolves.toContain('@company/tool');
     expect(lockContent.lockFileVersion).toBe(1);
-    expect(lockContent.extensions['company-tool']).toEqual({
+    expect(lockContent.extensions['test.company-tool']).toEqual({
       spec: 'npm:@company/tool@^1.2.0',
       resolution: {
         version: '1.2.3',
@@ -84,14 +84,14 @@ describe('installProjectExtensions npm source', () => {
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          'company-tool': 'npm:@company/tool@^1.2.0',
+          'test.company-tool': 'npm:@company/tool@^1.2.0',
         },
       },
     }));
     await saveExmLock(projectRoot, {
       lockFileVersion: 1,
       extensions: {
-        'company-tool': {
+        'test.company-tool': {
           spec: 'npm:@company/tool@^1.2.0',
           resolution: {
             version: '1.2.3',
@@ -109,15 +109,15 @@ describe('installProjectExtensions npm source', () => {
     expect(client.requests).toEqual([]);
     expect(result.installed).toEqual([
       expect.objectContaining({
-        id: 'company-tool',
-        path: path.join(projectRoot, 'extensions', 'company-tool'),
+        id: 'test.company-tool',
+        path: path.join(projectRoot, 'extensions', 'test.company-tool'),
         mode: 'copy',
         cache: expect.objectContaining({
           hit: false,
         }),
       }),
     ]);
-    await expect(readFile(path.join(projectRoot, 'extensions', 'company-tool', 'package.json'), 'utf8')).resolves.toContain('1.2.3');
+    await expect(readFile(path.join(projectRoot, 'extensions', 'test.company-tool', 'package.json'), 'utf8')).resolves.toContain('1.2.3');
   });
 
   it('should reinstall npm targets when the install-state marker is missing', async () => {
@@ -129,7 +129,7 @@ describe('installProjectExtensions npm source', () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-npm-marker-missing-'));
     tempRoots.push(workspace);
     const projectRoot = path.join(workspace, 'project');
-    const targetPath = path.join(projectRoot, 'extensions', 'company-tool');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.company-tool');
     await mkdir(targetPath, { recursive: true });
     await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({
       name: '@company/old-tool',
@@ -138,14 +138,14 @@ describe('installProjectExtensions npm source', () => {
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          'company-tool': 'npm:@company/tool@^1.2.0',
+          'test.company-tool': 'npm:@company/tool@^1.2.0',
         },
       },
     }));
     await saveExmLock(projectRoot, {
       lockFileVersion: 1,
       extensions: {
-        'company-tool': {
+        'test.company-tool': {
           spec: 'npm:@company/tool@^1.2.0',
           resolution: {
             version: '1.2.3',
@@ -165,7 +165,7 @@ describe('installProjectExtensions npm source', () => {
 
     expect(result.installed).toEqual([
       expect.objectContaining({
-        id: 'company-tool',
+        id: 'test.company-tool',
         path: targetPath,
         mode: 'copy',
       }),
@@ -174,7 +174,7 @@ describe('installProjectExtensions npm source', () => {
     await expect(readInstallState(projectRoot)).resolves.toEqual({
       schemaVersion: 1,
       extensions: {
-        'company-tool': {
+        'test.company-tool': {
           sourceType: 'npm',
           spec: 'npm:@company/tool@^1.2.0',
           version: '1.2.3',
@@ -194,23 +194,24 @@ describe('installProjectExtensions npm source', () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-npm-marker-skip-'));
     tempRoots.push(workspace);
     const projectRoot = path.join(workspace, 'project');
-    const targetPath = path.join(projectRoot, 'extensions', 'company-tool');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.company-tool');
     await mkdir(targetPath, { recursive: true });
     await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({
       name: '@company/tool',
+      vortex: { extensionId: 'test.company-tool' },
       version: '1.2.3',
     }));
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          'company-tool': 'npm:@company/tool@^1.2.0',
+          'test.company-tool': 'npm:@company/tool@^1.2.0',
         },
       },
     }));
     await saveExmLock(projectRoot, {
       lockFileVersion: 1,
       extensions: {
-        'company-tool': {
+        'test.company-tool': {
           spec: 'npm:@company/tool@^1.2.0',
           resolution: {
             version: '1.2.3',
@@ -221,7 +222,7 @@ describe('installProjectExtensions npm source', () => {
       },
     });
     await writeInstallState(projectRoot, {
-      'company-tool': {
+      'test.company-tool': {
         sourceType: 'npm',
         spec: 'npm:@company/tool@^1.2.0',
         version: '1.2.3',
@@ -238,7 +239,7 @@ describe('installProjectExtensions npm source', () => {
     });
 
     expect(result.installed).toEqual([]);
-    expect(result.skipped).toEqual(['company-tool']);
+    expect(result.skipped).toEqual(['test.company-tool']);
     await expect(readFile(path.join(targetPath, 'package.json'), 'utf8')).resolves.toContain('"version":"1.2.3"');
   });
 
@@ -251,23 +252,24 @@ describe('installProjectExtensions npm source', () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-npm-marker-mismatch-'));
     tempRoots.push(workspace);
     const projectRoot = path.join(workspace, 'project');
-    const targetPath = path.join(projectRoot, 'extensions', 'company-tool');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.company-tool');
     await mkdir(targetPath, { recursive: true });
     await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({
       name: '@company/tool',
+      vortex: { extensionId: 'test.company-tool' },
       version: '1.2.2',
     }));
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          'company-tool': 'npm:@company/tool@^1.2.0',
+          'test.company-tool': 'npm:@company/tool@^1.2.0',
         },
       },
     }));
     await saveExmLock(projectRoot, {
       lockFileVersion: 1,
       extensions: {
-        'company-tool': {
+        'test.company-tool': {
           spec: 'npm:@company/tool@^1.2.0',
           resolution: {
             version: '1.2.3',
@@ -278,7 +280,7 @@ describe('installProjectExtensions npm source', () => {
       },
     });
     await writeInstallState(projectRoot, {
-      'company-tool': {
+      'test.company-tool': {
         sourceType: 'npm',
         spec: 'npm:@company/tool@^1.2.0',
         version: '1.2.2',
@@ -296,14 +298,14 @@ describe('installProjectExtensions npm source', () => {
 
     expect(result.installed).toEqual([
       expect.objectContaining({
-        id: 'company-tool',
+        id: 'test.company-tool',
         path: targetPath,
         mode: 'copy',
       }),
     ]);
     await expect(readInstallState(projectRoot)).resolves.toMatchObject({
       extensions: {
-        'company-tool': {
+        'test.company-tool': {
           version: '1.2.3',
           resolved: 'https://registry.example.com/tool-1.2.3.tgz',
           integrity: 'sha512-1.2.3',
@@ -323,23 +325,24 @@ describe('updateProjectExtensions npm source', () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-npm-update-'));
     tempRoots.push(workspace);
     const projectRoot = path.join(workspace, 'project');
-    const targetPath = path.join(projectRoot, 'extensions', 'company-tool');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.company-tool');
     await mkdir(targetPath, { recursive: true });
     await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({
       name: '@company/tool',
+      vortex: { extensionId: 'test.company-tool' },
       version: '1.2.3',
     }));
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          'company-tool': 'npm:@company/tool@^1.2.0',
+          'test.company-tool': 'npm:@company/tool@^1.2.0',
         },
       },
     }));
     await saveExmLock(projectRoot, {
       lockFileVersion: 1,
       extensions: {
-        'company-tool': {
+        'test.company-tool': {
           spec: 'npm:@company/tool@^1.2.0',
           resolution: {
             version: '1.2.3',
@@ -359,7 +362,7 @@ describe('updateProjectExtensions npm source', () => {
 
     expect(result.updated).toEqual([
       expect.objectContaining({
-        id: 'company-tool',
+        id: 'test.company-tool',
         path: targetPath,
         mode: 'copy',
         cache: expect.objectContaining({
@@ -368,7 +371,7 @@ describe('updateProjectExtensions npm source', () => {
       }),
     ]);
     await expect(readFile(path.join(targetPath, 'package.json'), 'utf8')).resolves.toContain('1.2.4');
-    expect(lockContent.extensions['company-tool']?.resolution?.version).toBe('1.2.4');
+    expect(lockContent.extensions['test.company-tool']?.resolution?.version).toBe('1.2.4');
   });
 
   it('should skip exact npm versions that already match the lockfile', async () => {
@@ -380,23 +383,24 @@ describe('updateProjectExtensions npm source', () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-npm-update-exact-'));
     tempRoots.push(workspace);
     const projectRoot = path.join(workspace, 'project');
-    const targetPath = path.join(projectRoot, 'extensions', 'company-tool');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.company-tool');
     await mkdir(targetPath, { recursive: true });
     await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({
       name: '@company/tool',
+      vortex: { extensionId: 'test.company-tool' },
       version: '1.2.3',
     }));
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          'company-tool': 'npm:@company/tool@1.2.3',
+          'test.company-tool': 'npm:@company/tool@1.2.3',
         },
       },
     }));
     await saveExmLock(projectRoot, {
       lockFileVersion: 1,
       extensions: {
-        'company-tool': {
+        'test.company-tool': {
           spec: 'npm:@company/tool@1.2.3',
           resolution: {
             version: '1.2.3',
@@ -407,7 +411,7 @@ describe('updateProjectExtensions npm source', () => {
       },
     });
     await writeInstallState(projectRoot, {
-      'company-tool': {
+      'test.company-tool': {
         sourceType: 'npm',
         spec: 'npm:@company/tool@1.2.3',
         version: '1.2.3',
@@ -422,7 +426,7 @@ describe('updateProjectExtensions npm source', () => {
 
     expect(client.requests).toEqual([]);
     expect(result.updated).toEqual([]);
-    expect(result.skipped).toEqual(['company-tool']);
+    expect(result.skipped).toEqual(['test.company-tool']);
     await expect(access(targetPath)).resolves.toBeUndefined();
   });
 
@@ -435,7 +439,7 @@ describe('updateProjectExtensions npm source', () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-npm-update-marker-missing-'));
     tempRoots.push(workspace);
     const projectRoot = path.join(workspace, 'project');
-    const targetPath = path.join(projectRoot, 'extensions', 'company-tool');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.company-tool');
     await mkdir(targetPath, { recursive: true });
     await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({
       name: '@company/old-tool',
@@ -444,14 +448,14 @@ describe('updateProjectExtensions npm source', () => {
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          'company-tool': 'npm:@company/tool@1.2.3',
+          'test.company-tool': 'npm:@company/tool@1.2.3',
         },
       },
     }));
     await saveExmLock(projectRoot, {
       lockFileVersion: 1,
       extensions: {
-        'company-tool': {
+        'test.company-tool': {
           spec: 'npm:@company/tool@1.2.3',
           resolution: {
             version: '1.2.3',
@@ -469,7 +473,7 @@ describe('updateProjectExtensions npm source', () => {
     expect(client.requests).toEqual([]);
     expect(result.updated).toEqual([
       expect.objectContaining({
-        id: 'company-tool',
+        id: 'test.company-tool',
         path: targetPath,
         mode: 'copy',
       }),
@@ -477,7 +481,7 @@ describe('updateProjectExtensions npm source', () => {
     expect(result.skipped).toEqual([]);
     await expect(readInstallState(projectRoot)).resolves.toMatchObject({
       extensions: {
-        'company-tool': {
+        'test.company-tool': {
           version: '1.2.3',
           resolved: 'https://registry.example.com/tool-1.2.3.tgz',
           integrity: 'sha512-1.2.3',
@@ -507,6 +511,7 @@ class FakeNpmPackageClient implements NpmPackageClient {
     await mkdir(targetPath, { recursive: true });
     await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({
       name: resolved.packageName,
+      vortex: { extensionId: 'test.company-tool' },
       version: resolved.version,
     }));
   }

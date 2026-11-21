@@ -32,16 +32,45 @@ afterEach(async () => {
 });
 
 describe('exm registry server', () => {
-  it('should serve npm-compatible package metadata for encoded scoped package paths', async () => {
+  it('keeps case-sensitive IDs distinct in file-backed storage', async () => {
+    /// @case Two valid IDs differ only in case and publish the same version.
+    /// @expect Metadata and artifact bytes stay distinct on every filesystem.
+    const root = await createTempDir();
+    const app = createApp(new FileRegistryStorage({ root }));
+    for (const id of ['Example.Tools', 'example.tools']) {
+      const response = await publish(app, id, '1.0.0');
+      expect(response.statusCode, response.body).toBe(200);
+    }
+    for (const id of ['Example.Tools', 'example.tools']) {
+      const metadata = await app.inject({ method: 'GET', url: `/${id}` });
+      expect(JSON.parse(metadata.body).name).toBe(id);
+      const artifact = await app.inject({ method: 'GET', url: `/${id}/1.0.0/extension.tgz` });
+      expect(artifact.body).toBe(`${id}@1.0.0`);
+    }
+  });
+
+  it.each(['single', 'a..b', 'a.b-', '1a.b', 'a/b.c', '@org/package'])(
+    'rejects an invalid extension identity at the HTTP boundary: %s', async (id) => {
+      /// @case A client asks to publish under an identity outside the manifest grammar.
+      /// @expect The registry rejects it without writing artifacts or metadata.
+      const storage = new MemoryRegistryStorage();
+      const response = await publish(createApp(storage), id, '1.0.0');
+      expect(response.statusCode).toBeGreaterThanOrEqual(400);
+      expect(storage.artifacts.size).toBe(0);
+      expect(storage.metadataJson.size).toBe(0);
+    },
+  );
+
+  it('serves npm-compatible metadata keyed by persistent extension ID', async () => {
     /// @case
     /// 1. Storage contains an existing legacy exm package index.
-    /// 2. A Unity/npm-like client requests the scoped package using npm encoded path form.
+    /// 2. A client requests the extension by its persistent ID.
     /// @expect
     /// The server returns npm-compatible metadata with a public tarball URL and exm artifact metadata.
     const storage = new MemoryRegistryStorage();
-    storage.metadataJson.set(createPackageStoragePath('@feb/extension-feb'), {
+    storage.metadataJson.set(createPackageStoragePath('tech.bsgames.feb'), {
       schemaVersion: 1,
-      name: '@feb/extension-feb',
+      name: 'tech.bsgames.feb',
       versions: {
         '0.0.81': {
           version: '0.0.81',
@@ -56,13 +85,13 @@ describe('exm registry server', () => {
     });
     const app = createApp(storage);
 
-    const response = await app.inject({ method: 'GET', url: '/@feb%2fextension-feb' });
+    const response = await app.inject({ method: 'GET', url: '/tech.bsgames.feb' });
     const body = JSON.parse(response.body) as TestPackageMetadata;
 
     expect(response.statusCode).toBe(200);
-    expect(body.name).toBe('@feb/extension-feb');
+    expect(body.name).toBe('tech.bsgames.feb');
     expect(body.versions['0.0.81'].dist).toEqual({
-      tarball: 'https://exm.example.com/%40feb/extension-feb/0.0.81/extension.tgz',
+      tarball: 'https://exm.example.com/tech.bsgames.feb/0.0.81/extension.tgz',
       integrity: 'sha512-test',
     });
     expect(body.versions['0.0.81'].exm.artifact.size).toBe(123);
@@ -81,7 +110,7 @@ describe('exm registry server', () => {
 
     const response = await app.inject({
       method: 'PUT',
-      url: '/-/exm/v1/publish?name=%40feb%2Fextension-feb&version=0.0.81',
+      url: '/-/exm/v1/publish?name=tech.bsgames.feb&version=0.0.81',
       headers: {
         'content-type': 'application/gzip',
         'x-exm-integrity': integrity,
@@ -93,17 +122,17 @@ describe('exm registry server', () => {
 
     expect(response.statusCode).toBe(200);
     expect(result).toMatchObject({
-      packageName: '@feb/extension-feb',
+      packageName: 'tech.bsgames.feb',
       version: '0.0.81',
-      metadataUrl: 'https://exm.example.com/%40feb/extension-feb',
-      artifactUrl: 'https://exm.example.com/%40feb/extension-feb/0.0.81/extension.tgz',
+      metadataUrl: 'https://exm.example.com/tech.bsgames.feb',
+      artifactUrl: 'https://exm.example.com/tech.bsgames.feb/0.0.81/extension.tgz',
       integrity,
       size: artifact.byteLength,
     });
-    expect(storage.artifacts.get('%40feb/extension-feb/0.0.81/extension.tgz')?.equals(artifact)).toBe(true);
+    expect(storage.artifacts.get('tech.bsgames.feb/0.0.81/extension.tgz')?.equals(artifact)).toBe(true);
 
-    const metadata = storage.metadataJson.get('%40feb/extension-feb/index.json') as TestPackageMetadata;
-    expect(metadata.versions['0.0.81'].dist.tarball).toBe('https://exm.example.com/%40feb/extension-feb/0.0.81/extension.tgz');
+    const metadata = storage.metadataJson.get('tech.bsgames.feb/index.json') as TestPackageMetadata;
+    expect(metadata.versions['0.0.81'].dist.tarball).toBe('https://exm.example.com/tech.bsgames.feb/0.0.81/extension.tgz');
     expect(metadata.versions['0.0.81'].exm.artifact).toEqual({
       type: 'tgz',
       path: '0.0.81/extension.tgz',
@@ -120,7 +149,7 @@ describe('exm registry server', () => {
     /// The server returns npm search-compatible package summaries and package documents.
     const storage = new MemoryRegistryStorage();
     const app = createApp(storage);
-    await publish(app, '@feb/extension-feb', '0.0.81');
+    await publish(app, 'tech.bsgames.feb', '0.0.81');
 
     const search = await app.inject({ method: 'GET', url: '/-/v1/search?text=feb' });
     const all = await app.inject({ method: 'GET', url: '/-/all' });
@@ -131,13 +160,13 @@ describe('exm registry server', () => {
       objects: [
         {
           package: {
-            name: '@feb/extension-feb',
+            name: 'tech.bsgames.feb',
             version: '0.0.81',
           },
         },
       ],
     });
-    expect(Object.keys(JSON.parse(all.body) as Record<string, unknown>)).toEqual(['@feb/extension-feb']);
+    expect(Object.keys(JSON.parse(all.body) as Record<string, unknown>)).toEqual(['tech.bsgames.feb']);
   });
 
   it('should persist published packages through file storage', async () => {
@@ -148,31 +177,31 @@ describe('exm registry server', () => {
     /// Metadata, search data, and artifact bytes remain available from the persistent data directory.
     const root = await createTempDir();
     const app = createApp(new FileRegistryStorage({ root }));
-    await publish(app, '@feb/extension-feb', '0.0.81');
+    await publish(app, 'tech.bsgames.feb', '0.0.81');
 
-    expect(await readFile(path.join(root, 'artifacts', '%40feb', 'extension-feb', '0.0.81', 'extension.tgz'), 'utf8')).toBe('@feb/extension-feb@0.0.81');
-    expect(JSON.parse(await readFile(path.join(root, 'metadata', '%40feb', 'extension-feb', 'index.json'), 'utf8'))).toMatchObject({
-      name: '@feb/extension-feb',
+    expect(await readFile(path.join(root, 'artifacts', 'tech.bsgames.feb', '0.0.81', 'extension.tgz'), 'utf8')).toBe('tech.bsgames.feb@0.0.81');
+    expect(JSON.parse(await readFile(path.join(root, 'metadata', 'tech.bsgames.feb', 'index.json'), 'utf8'))).toMatchObject({
+      name: 'tech.bsgames.feb',
       versions: {
         '0.0.81': {},
       },
     });
     expect(JSON.parse(await readFile(path.join(root, 'metadata', '-', 'search.json'), 'utf8'))).toMatchObject({
       packages: {
-        '@feb/extension-feb': {
+        'tech.bsgames.feb': {
           version: '0.0.81',
         },
       },
     });
 
     const reloadedApp = createApp(new FileRegistryStorage({ root }));
-    const metadata = await reloadedApp.inject({ method: 'GET', url: '/@feb/extension-feb' });
-    const artifact = await reloadedApp.inject({ method: 'GET', url: '/@feb/extension-feb/0.0.81/extension.tgz' });
+    const metadata = await reloadedApp.inject({ method: 'GET', url: '/tech.bsgames.feb' });
+    const artifact = await reloadedApp.inject({ method: 'GET', url: '/tech.bsgames.feb/0.0.81/extension.tgz' });
 
     expect(metadata.statusCode).toBe(200);
     expect(Object.keys((JSON.parse(metadata.body) as TestPackageMetadata).versions)).toEqual(['0.0.81']);
     expect(artifact.statusCode).toBe(200);
-    expect(artifact.body).toBe('@feb/extension-feb@0.0.81');
+    expect(artifact.body).toBe('tech.bsgames.feb@0.0.81');
   });
 
   it('should reject duplicate package versions', async () => {
@@ -184,8 +213,8 @@ describe('exm registry server', () => {
     const storage = new MemoryRegistryStorage();
     const app = createApp(storage);
 
-    await publish(app, '@feb/extension-feb', '0.0.81');
-    const duplicate = await publish(app, '@feb/extension-feb', '0.0.81');
+    await publish(app, 'tech.bsgames.feb', '0.0.81');
+    const duplicate = await publish(app, 'tech.bsgames.feb', '0.0.81');
 
     expect(duplicate.statusCode).toBe(409);
     expect(JSON.parse(duplicate.body).error).toContain('version 0.0.81 already exists');
@@ -201,13 +230,13 @@ describe('exm registry server', () => {
     const app = createApp(storage);
 
     const [left, right] = await Promise.all([
-      publish(app, '@feb/extension-feb', '0.0.81'),
-      publish(app, '@feb/extension-feb', '0.0.82'),
+      publish(app, 'tech.bsgames.feb', '0.0.81'),
+      publish(app, 'tech.bsgames.feb', '0.0.82'),
     ]);
 
     expect(left.statusCode).toBe(200);
     expect(right.statusCode).toBe(200);
-    const metadata = JSON.parse((await app.inject({ method: 'GET', url: '/@feb/extension-feb' })).body) as TestPackageMetadata;
+    const metadata = JSON.parse((await app.inject({ method: 'GET', url: '/tech.bsgames.feb' })).body) as TestPackageMetadata;
     expect(Object.keys(metadata.versions)).toEqual(['0.0.81', '0.0.82']);
   });
 });

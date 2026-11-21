@@ -45,12 +45,13 @@ describe('updateProjectExtensions', () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-update-adopt-'));
     tempRoots.push(workspace);
     const projectRoot = path.join(workspace, 'project');
-    const targetPath = path.join(projectRoot, 'extensions', 'sample');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.sample');
     await mkdir(path.join(targetPath, '.git'), { recursive: true });
+    await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          sample: 'https://github.com/feb/example.git',
+          'test.sample': 'https://github.com/feb/example.git',
         },
       },
     }));
@@ -58,6 +59,11 @@ describe('updateProjectExtensions', () => {
     const registry = new ExtensionSourceRegistry([
       new LinkExtensionSource(),
       new GitExtensionSource(async (file, args) => {
+        if (args[0] === 'clone') {
+          const cloned = args.at(-1)!;
+          await mkdir(cloned, { recursive: true });
+          await writeFile(path.join(cloned, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
+        }
         expect(file).toBe('git');
         (calls as string[][]).push([...args]);
 
@@ -75,7 +81,7 @@ describe('updateProjectExtensions', () => {
     expect(result.updated).toEqual([]);
     expect(result.adopted).toEqual([
       {
-        id: 'sample',
+        id: 'test.sample',
         path: targetPath,
         mode: 'clone',
         git: {
@@ -94,13 +100,14 @@ describe('updateProjectExtensions', () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-update-replace-'));
     tempRoots.push(workspace);
     const projectRoot = path.join(workspace, 'project');
-    const targetPath = path.join(projectRoot, 'extensions', 'sample');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.sample');
     await mkdir(targetPath, { recursive: true });
+    await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
     await writeFile(path.join(targetPath, 'old.txt'), 'old install');
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          sample: 'https://github.com/feb/example.git',
+          'test.sample': 'https://github.com/feb/example.git',
         },
       },
     }));
@@ -108,6 +115,11 @@ describe('updateProjectExtensions', () => {
     const registry = new ExtensionSourceRegistry([
       new LinkExtensionSource(),
       new GitExtensionSource(async (file, args) => {
+        if (args[0] === 'clone') {
+          const cloned = args.at(-1)!;
+          await mkdir(cloned, { recursive: true });
+          await writeFile(path.join(cloned, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
+        }
         expect(file).toBe('git');
         (calls as string[][]).push([...args]);
 
@@ -124,7 +136,7 @@ describe('updateProjectExtensions', () => {
 
     expect(result.updated).toEqual([
       expect.objectContaining({
-        id: 'sample',
+        id: 'test.sample',
         path: targetPath,
         mode: 'clone',
         git: {
@@ -147,8 +159,9 @@ describe('updateProjectExtensions', () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-update-local-lock-'));
     tempRoots.push(workspace);
     const projectRoot = path.join(workspace, 'project');
-    const targetPath = path.join(projectRoot, 'extensions', 'sample');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.sample');
     await mkdir(targetPath, { recursive: true });
+    await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {},
@@ -156,13 +169,13 @@ describe('updateProjectExtensions', () => {
     }));
     await writeFile(path.join(projectRoot, EXM_LOCAL_FILE), [
       'dependencies:',
-      '  sample: https://github.com/feb/example.git',
+      '  test.sample: https://github.com/feb/example.git',
       '',
     ].join('\n'));
     await saveExmLock(projectRoot, {
       lockFileVersion: 1,
       extensions: {
-        sample: {
+        'test.sample': {
           spec: 'https://github.com/feb/example.git',
           resolution: {
             commit: oldCommit,
@@ -173,6 +186,11 @@ describe('updateProjectExtensions', () => {
     const registry = new ExtensionSourceRegistry([
       new LinkExtensionSource(),
       new GitExtensionSource(async (file, args) => {
+        if (args[0] === 'clone') {
+          const cloned = args.at(-1)!;
+          await mkdir(cloned, { recursive: true });
+          await writeFile(path.join(cloned, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
+        }
         expect(file).toBe('git');
 
         if (args[0] === 'rev-parse') {
@@ -188,7 +206,7 @@ describe('updateProjectExtensions', () => {
 
     expect(result.updated).toEqual([
       expect.objectContaining({
-        id: 'sample',
+        id: 'test.sample',
         path: targetPath,
         mode: 'clone',
         git: {
@@ -211,20 +229,21 @@ describe('updateProjectExtensions', () => {
     const currentSpec = `link:${path.relative(projectRoot, sourceRoot)}`;
     await mkdir(projectRoot, { recursive: true });
     await mkdir(sourceRoot, { recursive: true });
+    await writeFile(path.join(sourceRoot, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.current' } }));
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          current: currentSpec,
+          'test.current': currentSpec,
         },
       },
     }));
     await saveExmLock(projectRoot, {
       lockFileVersion: 1,
       extensions: {
-        current: {
+        'test.current': {
           spec: currentSpec,
         },
-        stale: {
+        'stale': {
           spec: 'link:../stale-extension',
         },
       },
@@ -234,27 +253,28 @@ describe('updateProjectExtensions', () => {
     const lockContent = await readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8');
 
     expect(result.updated).toEqual([]);
-    expect(result.skipped).toEqual(['current']);
-    expect(lockContent).toContain('current:');
+    expect(result.skipped).toEqual(['test.current']);
+    expect(lockContent).toContain('test.current:');
     expect(lockContent).not.toContain('stale:');
   });
   it('should pull existing managed git root extensions without a pinned commit', async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-update-'));
     tempRoots.push(workspace);
     const projectRoot = path.join(workspace, 'project');
-    const targetPath = path.join(projectRoot, 'extensions', 'sample');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.sample');
     await mkdir(targetPath, { recursive: true });
+    await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          sample: 'https://github.com/feb/example.git',
+          'test.sample': 'https://github.com/feb/example.git',
         },
       },
     }));
     await saveExmLock(projectRoot, {
       lockFileVersion: 1,
       extensions: {
-        sample: {
+        'test.sample': {
           spec: 'https://github.com/feb/example.git',
           resolution: {
             commit: oldCommit,
@@ -266,6 +286,11 @@ describe('updateProjectExtensions', () => {
     const registry = new ExtensionSourceRegistry([
       new LinkExtensionSource(),
       new GitExtensionSource(async (file, args) => {
+        if (args[0] === 'clone') {
+          const cloned = args.at(-1)!;
+          await mkdir(cloned, { recursive: true });
+          await writeFile(path.join(cloned, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
+        }
         expect(file).toBe('git');
         (calls as string[][]).push([...args]);
 
@@ -282,7 +307,7 @@ describe('updateProjectExtensions', () => {
 
     expect(result.updated).toEqual([
       expect.objectContaining({
-        id: 'sample',
+        id: 'test.sample',
         path: targetPath,
         mode: 'clone',
         git: {
@@ -297,7 +322,7 @@ describe('updateProjectExtensions', () => {
       ['pull', '--ff-only'],
       ['rev-parse', 'HEAD'],
     ]);
-    await expect(readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')).resolves.toContain('sample:');
+    await expect(readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')).resolves.toContain('test.sample:');
     await expect(readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')).resolves.toContain(`commit: ${resolvedCommit}`);
   });
 
@@ -305,19 +330,20 @@ describe('updateProjectExtensions', () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-update-unchanged-'));
     tempRoots.push(workspace);
     const projectRoot = path.join(workspace, 'project');
-    const targetPath = path.join(projectRoot, 'extensions', 'sample');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.sample');
     await mkdir(targetPath, { recursive: true });
+    await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          sample: 'https://github.com/feb/example.git',
+          'test.sample': 'https://github.com/feb/example.git',
         },
       },
     }));
     await saveExmLock(projectRoot, {
       lockFileVersion: 1,
       extensions: {
-        sample: {
+        'test.sample': {
           spec: 'https://github.com/feb/example.git',
           resolution: {
             commit: resolvedCommit,
@@ -328,6 +354,11 @@ describe('updateProjectExtensions', () => {
     const registry = new ExtensionSourceRegistry([
       new LinkExtensionSource(),
       new GitExtensionSource(async (file, args) => {
+        if (args[0] === 'clone') {
+          const cloned = args.at(-1)!;
+          await mkdir(cloned, { recursive: true });
+          await writeFile(path.join(cloned, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
+        }
         expect(file).toBe('git');
 
         if (args[0] === 'rev-parse') {
@@ -342,6 +373,6 @@ describe('updateProjectExtensions', () => {
     });
 
     expect(result.updated).toEqual([]);
-    expect(result.skipped).toEqual(['sample']);
+    expect(result.skipped).toEqual(['test.sample']);
   });
 });

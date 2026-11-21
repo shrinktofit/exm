@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { assertExtensionIdentity } from '../config/extension-manifest.js';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { assertDirectory, assertPathInside, createDirectoryLink, isSameRealPath, pathExists } from '../fs/path.js';
@@ -73,6 +74,7 @@ export class GitExtensionSource implements ExtensionSource {
       }
 
       const commit = await ensureGitCheckout(git, targetPath, this.commandRunner);
+      await assertExtensionIdentity(targetPath, resolved.id);
 
       return {
         id: resolved.id,
@@ -88,6 +90,7 @@ export class GitExtensionSource implements ExtensionSource {
     const sourcePath = resolveGitSourcePath(checkoutPath, git);
     const commit = await ensureGitCheckout(git, checkoutPath, this.commandRunner);
     await assertDirectory(sourcePath, `git source for "${resolved.id}"`);
+    await assertExtensionIdentity(sourcePath, resolved.id);
 
     if (!await isSameRealPath(sourcePath, targetPath)) {
       return undefined;
@@ -114,6 +117,7 @@ export class GitExtensionSource implements ExtensionSource {
     if (git.subpath === undefined) {
       const gitSyncStartMs = nowMs();
       const commit = await ensureGitCheckout(git, targetPath, this.commandRunner);
+      await assertExtensionIdentity(targetPath, resolved.id);
       const gitSyncMs = elapsedMs(gitSyncStartMs);
 
       return {
@@ -136,6 +140,7 @@ export class GitExtensionSource implements ExtensionSource {
     const commit = await ensureGitCheckout(git, checkoutPath, this.commandRunner);
     const gitSyncMs = elapsedMs(gitSyncStartMs);
     await assertDirectory(sourcePath, `git source for "${resolved.id}"`);
+    await assertExtensionIdentity(sourcePath, resolved.id);
     const linkStartMs = nowMs();
     await createDirectoryLink(sourcePath, targetPath);
     const linkMs = elapsedMs(linkStartMs);

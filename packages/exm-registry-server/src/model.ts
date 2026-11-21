@@ -72,11 +72,9 @@ export function decodePackagePath(packagePath: string): string {
 }
 
 export function validatePackageName(packageName: string): void {
-  const nameSegment = '[a-z0-9][a-z0-9._~-]*';
-  const packagePattern = new RegExp(`^(?:${nameSegment}|@${nameSegment}/${nameSegment})$`);
-
-  if (!packagePattern.test(packageName)) {
-    throw new Error(`package name is invalid: ${packageName}`);
+  const pattern = /^[A-Za-z](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/u;
+  if (pattern.exec(packageName)?.[0] !== packageName) {
+    throw new Error(`registry extensionId is invalid: ${packageName}`);
   }
 }
 
@@ -93,11 +91,16 @@ export function createArtifactPath(version: string): string {
 }
 
 export function createArtifactStoragePath(packageName: string, version: string): string {
-  return `${encodePackagePath(packageName)}/${createArtifactPath(version)}`;
+  return `${encodeStoragePackagePath(packageName)}/${createArtifactPath(version)}`;
 }
 
 export function createPackageStoragePath(packageName: string): string {
-  return `${encodePackagePath(packageName)}/index.json`;
+  return `${encodeStoragePackagePath(packageName)}/index.json`;
+}
+
+function encodeStoragePackagePath(packageName: string): string {
+  // Preserve case-sensitive identity on case-insensitive filesystems, too.
+  return encodePackagePath(packageName).replace(/[A-Z]/g, (letter) => `%${letter.charCodeAt(0).toString(16)}`);
 }
 
 export function createPackageMetadataUrl(publicUrl: string, packageName: string): string {

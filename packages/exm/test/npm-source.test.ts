@@ -107,7 +107,7 @@ describe('NpmExtensionSource', () => {
     const context = createContext(await createWorkspace());
 
     const resolved = await source.resolve({
-      id: 'company-tool',
+      id: 'test.company-tool',
       spec: 'npm:@company/tool@^1.2.0',
       previous: {
         spec: 'npm:@company/tool@^1.2.0',
@@ -143,7 +143,7 @@ describe('NpmExtensionSource', () => {
     };
 
     const resolved = await source.resolve({
-      id: 'company-tool',
+      id: 'test.company-tool',
       spec: 'npm:@company/tool@^1.2.0',
       previous: {
         spec: 'npm:@company/tool@^1.2.0',
@@ -175,15 +175,15 @@ describe('NpmExtensionSource', () => {
     const client = new FakeNpmPackageClient([createNpmResolution('1.2.3')]);
     const source = new NpmExtensionSource(client, new FakeNpmVersionRange(true));
     const resolved = await source.resolve({
-      id: 'company-tool',
+      id: 'test.company-tool',
       spec: 'npm:@company/tool@1.2.3',
     }, context);
 
     const materialized = await source.materialize(resolved, context);
 
     expect(materialized).toEqual({
-      id: 'company-tool',
-      path: path.join(context.installRoot, 'company-tool'),
+      id: 'test.company-tool',
+      path: path.join(context.installRoot, 'test.company-tool'),
       mode: 'copy',
       cache: {
         path: resolved.sourcePath,
@@ -242,6 +242,7 @@ class FakeNpmPackageClient implements NpmPackageClient {
     await mkdir(targetPath, { recursive: true });
     await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({
       name: resolved.packageName,
+      vortex: { extensionId: 'test.company-tool' },
       version: resolved.version,
     }));
   }

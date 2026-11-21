@@ -41,28 +41,29 @@ describe('installProjectExtensions link source', () => {
     const sourceRoot = path.join(workspace, 'sample-extension');
     await mkdir(projectRoot, { recursive: true });
     await mkdir(sourceRoot, { recursive: true });
-    await writeFile(path.join(sourceRoot, 'package.json'), JSON.stringify({ name: 'sample-extension' }));
+    await writeFile(path.join(sourceRoot, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
+    await writeFile(path.join(sourceRoot, 'package.json'), JSON.stringify({ name: 'sample-extension', vortex: { extensionId: 'test.sample' } }));
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          sample: `link:${path.relative(projectRoot, sourceRoot)}`,
+          'test.sample': `link:${path.relative(projectRoot, sourceRoot)}`,
         },
       },
     }));
 
     const result = await installProjectExtensions({ projectRoot });
-    const targetPath = path.join(projectRoot, 'extensions', 'sample');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.sample');
 
     expect(result.installed).toEqual([
       {
-        id: 'sample',
+        id: 'test.sample',
         path: targetPath,
         mode: 'link',
       },
     ]);
     expect(await realpath(targetPath)).toBe(await realpath(sourceRoot));
     await expect(readlink(targetPath)).resolves.toBeTruthy();
-    await expect(readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')).resolves.toContain('sample:');
+    await expect(readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')).resolves.toContain('test.sample:');
   });
 
   it('should install when the link source path is a directory symlink', async () => {
@@ -74,22 +75,22 @@ describe('installProjectExtensions link source', () => {
     await mkdir(projectRoot, { recursive: true });
     await mkdir(realSourceRoot, { recursive: true });
     await mkdir(path.dirname(sourceLinkRoot), { recursive: true });
-    await writeFile(path.join(realSourceRoot, 'package.json'), JSON.stringify({ name: 'cc-extension-text-field' }));
+    await writeFile(path.join(realSourceRoot, 'package.json'), JSON.stringify({ name: 'cc-extension-text-field', vortex: { extensionId: 'test.text-field' } }));
     await fsSymlink(realSourceRoot, sourceLinkRoot, 'junction');
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          'text-field': `link:${path.relative(projectRoot, sourceLinkRoot)}`,
+          'test.text-field': `link:${path.relative(projectRoot, sourceLinkRoot)}`,
         },
       },
     }));
 
     const result = await installProjectExtensions({ projectRoot });
-    const targetPath = path.join(projectRoot, 'extensions', 'text-field');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.text-field');
 
     expect(result.installed).toEqual([
       {
-        id: 'text-field',
+        id: 'test.text-field',
         path: targetPath,
         mode: 'link',
       },
@@ -103,13 +104,15 @@ describe('installProjectExtensions link source', () => {
     tempRoots.push(workspace);
     const projectRoot = path.join(workspace, 'project');
     const sourceRoot = path.join(workspace, 'sample-extension');
-    const targetPath = path.join(projectRoot, 'extensions', 'sample');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.sample');
     await mkdir(targetPath, { recursive: true });
+    await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
     await mkdir(sourceRoot, { recursive: true });
+    await writeFile(path.join(sourceRoot, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          sample: `link:${path.relative(projectRoot, sourceRoot)}`,
+          'test.sample': `link:${path.relative(projectRoot, sourceRoot)}`,
         },
       },
     }));
@@ -122,14 +125,14 @@ describe('installProjectExtensions link source', () => {
 
     expect(result.installed).toEqual([
       {
-        id: 'sample',
+        id: 'test.sample',
         path: targetPath,
         mode: 'link',
       },
     ]);
     expect(await realpath(targetPath)).toBe(await realpath(sourceRoot));
     expect(lockContent.lockFileVersion).toBe(1);
-    expect(lockContent.extensions.sample?.spec).toBe(`link:${path.relative(projectRoot, sourceRoot)}`);
+    expect(lockContent.extensions['test.sample']?.spec).toBe(`link:${path.relative(projectRoot, sourceRoot)}`);
   });
 
   it('should write the local lockfile when exm.local.yaml adds dependencies', async () => {
@@ -140,17 +143,19 @@ describe('installProjectExtensions link source', () => {
     const localSourceRoot = path.join(workspace, 'local-extension');
     await mkdir(projectRoot, { recursive: true });
     await mkdir(sharedSourceRoot, { recursive: true });
+    await writeFile(path.join(sharedSourceRoot, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.shared' } }));
     await mkdir(localSourceRoot, { recursive: true });
+    await writeFile(path.join(localSourceRoot, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.localOnly' } }));
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          shared: `link:${path.relative(projectRoot, sharedSourceRoot)}`,
+          'test.shared': `link:${path.relative(projectRoot, sharedSourceRoot)}`,
         },
       },
     }));
     await writeFile(path.join(projectRoot, EXM_LOCAL_FILE), [
       'dependencies:',
-      `  localOnly: link:${path.relative(projectRoot, localSourceRoot).replaceAll('\\', '/')}`,
+      `  'test.localOnly': link:${path.relative(projectRoot, localSourceRoot).replaceAll('\\', '/')}`,
       '',
     ].join('\n'));
 
@@ -160,8 +165,8 @@ describe('installProjectExtensions link source', () => {
     };
 
     expect(result.installed).toHaveLength(2);
-    expect(localLockContent.extensions.shared?.spec).toBe(`link:${path.relative(projectRoot, sharedSourceRoot)}`);
-    expect(localLockContent.extensions.localOnly?.spec).toBe(`link:${path.relative(projectRoot, localSourceRoot).replaceAll('\\', '/')}`);
+    expect(localLockContent.extensions['test.shared']?.spec).toBe(`link:${path.relative(projectRoot, sharedSourceRoot)}`);
+    expect(localLockContent.extensions['test.localOnly']?.spec).toBe(`link:${path.relative(projectRoot, localSourceRoot).replaceAll('\\', '/')}`);
     await expect(readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')).rejects.toThrow();
   });
 
@@ -173,20 +178,21 @@ describe('installProjectExtensions link source', () => {
     const currentSpec = `link:${path.relative(projectRoot, sourceRoot)}`;
     await mkdir(projectRoot, { recursive: true });
     await mkdir(sourceRoot, { recursive: true });
+    await writeFile(path.join(sourceRoot, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.current' } }));
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          current: currentSpec,
+          'test.current': currentSpec,
         },
       },
     }));
     await saveExmLock(projectRoot, {
       lockFileVersion: 1,
       extensions: {
-        current: {
+        'test.current': {
           spec: currentSpec,
         },
-        stale: {
+        'stale': {
           spec: 'link:../stale-extension',
         },
       },
@@ -197,19 +203,20 @@ describe('installProjectExtensions link source', () => {
       extensions: Record<string, unknown>;
     };
 
-    expect(Object.keys(lockContent.extensions)).toEqual(['current']);
+    expect(Object.keys(lockContent.extensions)).toEqual(['test.current']);
   });
   it('should replace existing unmanaged git targets and write the lockfile', async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-existing-git-'));
     tempRoots.push(workspace);
     const projectRoot = path.join(workspace, 'project');
-    const targetPath = path.join(projectRoot, 'extensions', 'sample');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.sample');
     await mkdir(targetPath, { recursive: true });
+    await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
     await writeFile(path.join(targetPath, 'old.txt'), 'old install');
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          sample: 'https://github.com/feb/example.git',
+          'test.sample': 'https://github.com/feb/example.git',
         },
       },
     }));
@@ -217,6 +224,11 @@ describe('installProjectExtensions link source', () => {
     const registry = new ExtensionSourceRegistry([
       new LinkExtensionSource(),
       new GitExtensionSource(async (file, args) => {
+        if (args[0] === 'clone') {
+          const cloned = args.at(-1)!;
+          await mkdir(cloned, { recursive: true });
+          await writeFile(path.join(cloned, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
+        }
         expect(file).toBe('git');
         (calls as string[][]).push([...args]);
 
@@ -237,7 +249,7 @@ describe('installProjectExtensions link source', () => {
 
     expect(result.installed).toEqual([
       expect.objectContaining({
-        id: 'sample',
+        id: 'test.sample',
         path: targetPath,
         mode: 'clone',
         git: {
@@ -253,20 +265,20 @@ describe('installProjectExtensions link source', () => {
       ['rev-parse', 'HEAD'],
     ]);
     expect(lockContent.lockFileVersion).toBe(1);
-    expect(lockContent.extensions.sample?.spec).toBe('https://github.com/feb/example.git');
-    expect(lockContent.extensions.sample?.resolution?.commit).toBe(resolvedCommit);
+    expect(lockContent.extensions['test.sample']?.spec).toBe('https://github.com/feb/example.git');
+    expect(lockContent.extensions['test.sample']?.resolution?.commit).toBe(resolvedCommit);
   });
 
   it('should save resolved commits for branch git dependencies in the lockfile', async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-branch-git-'));
     tempRoots.push(workspace);
     const projectRoot = path.join(workspace, 'project');
-    const targetPath = path.join(projectRoot, 'extensions', 'sample');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.sample');
     await mkdir(projectRoot, { recursive: true });
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          sample: 'https://github.com/feb/example.git#main',
+          'test.sample': 'https://github.com/feb/example.git#main',
         },
       },
     }));
@@ -274,6 +286,11 @@ describe('installProjectExtensions link source', () => {
     const registry = new ExtensionSourceRegistry([
       new LinkExtensionSource(),
       new GitExtensionSource(async (file, args) => {
+        if (args[0] === 'clone') {
+          const cloned = args.at(-1)!;
+          await mkdir(cloned, { recursive: true });
+          await writeFile(path.join(cloned, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
+        }
         expect(file).toBe('git');
         (calls as string[][]).push([...args]);
 
@@ -297,8 +314,8 @@ describe('installProjectExtensions link source', () => {
       ['checkout', '--force', 'FETCH_HEAD'],
       ['rev-parse', 'HEAD'],
     ]);
-    expect(lockContent.extensions.sample?.spec).toBe('https://github.com/feb/example.git#main');
-    expect(lockContent.extensions.sample?.resolution?.commit).toBe(resolvedCommit);
+    expect(lockContent.extensions['test.sample']?.spec).toBe('https://github.com/feb/example.git#main');
+    expect(lockContent.extensions['test.sample']?.resolution?.commit).toBe(resolvedCommit);
   });
 
   it('should adopt an existing unmanaged link target when it matches the current spec', async () => {
@@ -308,14 +325,15 @@ describe('installProjectExtensions link source', () => {
     const sourceRoot = path.join(workspace, 'sample-extension');
     await mkdir(projectRoot, { recursive: true });
     await mkdir(sourceRoot, { recursive: true });
+    await writeFile(path.join(sourceRoot, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          sample: `link:${path.relative(projectRoot, sourceRoot)}`,
+          'test.sample': `link:${path.relative(projectRoot, sourceRoot)}`,
         },
       },
     }));
-    const targetPath = path.join(projectRoot, 'extensions', 'sample');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.sample');
     await mkdir(path.dirname(targetPath), { recursive: true });
     await fsSymlink(sourceRoot, targetPath, 'junction');
 
@@ -328,13 +346,13 @@ describe('installProjectExtensions link source', () => {
     expect(result.installed).toEqual([]);
     expect(result.adopted).toEqual([
       {
-        id: 'sample',
+        id: 'test.sample',
         path: targetPath,
         mode: 'link',
       },
     ]);
     expect(lockContent.lockFileVersion).toBe(1);
-    expect(lockContent.extensions.sample?.spec).toBe(`link:${path.relative(projectRoot, sourceRoot)}`);
+    expect(lockContent.extensions['test.sample']?.spec).toBe(`link:${path.relative(projectRoot, sourceRoot)}`);
   });
 
   it('should skip existing managed targets when the spec is unchanged', async () => {
@@ -344,10 +362,11 @@ describe('installProjectExtensions link source', () => {
     const sourceRoot = path.join(workspace, 'sample-extension');
     await mkdir(projectRoot, { recursive: true });
     await mkdir(sourceRoot, { recursive: true });
+    await writeFile(path.join(sourceRoot, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          sample: `link:${path.relative(projectRoot, sourceRoot)}`,
+          'test.sample': `link:${path.relative(projectRoot, sourceRoot)}`,
         },
       },
     }));
@@ -356,7 +375,7 @@ describe('installProjectExtensions link source', () => {
     const result = await installProjectExtensions({ projectRoot });
 
     expect(result.installed).toEqual([]);
-    expect(result.skipped).toEqual(['sample']);
+    expect(result.skipped).toEqual(['test.sample']);
   });
 
   it('should replace existing managed targets when the spec changes', async () => {
@@ -367,12 +386,14 @@ describe('installProjectExtensions link source', () => {
     const nextSourceRoot = path.join(workspace, 'next-extension');
     await mkdir(projectRoot, { recursive: true });
     await mkdir(sourceRoot, { recursive: true });
+    await writeFile(path.join(sourceRoot, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
     await mkdir(nextSourceRoot, { recursive: true });
+    await writeFile(path.join(nextSourceRoot, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
     const writePackageJson = async (sourcePath: string): Promise<void> => {
       await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
         exm: {
           dependencies: {
-            sample: `link:${path.relative(projectRoot, sourcePath)}`,
+            'test.sample': `link:${path.relative(projectRoot, sourcePath)}`,
           },
         },
       }));
@@ -382,19 +403,19 @@ describe('installProjectExtensions link source', () => {
     await installProjectExtensions({ projectRoot });
     await writePackageJson(nextSourceRoot);
     const result = await installProjectExtensions({ projectRoot });
-    const targetPath = path.join(projectRoot, 'extensions', 'sample');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.sample');
     const lockContent = parse(await readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')) as {
       extensions: Record<string, { spec: string }>;
     };
 
     expect(result.installed).toEqual([
       {
-        id: 'sample',
+        id: 'test.sample',
         path: targetPath,
         mode: 'link',
       },
     ]);
     expect(await realpath(targetPath)).toBe(await realpath(nextSourceRoot));
-    expect(lockContent.extensions.sample?.spec).toBe(`link:${path.relative(projectRoot, nextSourceRoot)}`);
+    expect(lockContent.extensions['test.sample']?.spec).toBe(`link:${path.relative(projectRoot, nextSourceRoot)}`);
   });
 });

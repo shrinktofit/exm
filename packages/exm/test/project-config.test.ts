@@ -21,7 +21,7 @@ describe('loadProjectConfig', () => {
     const projectRoot = await createTempProject({
       exm: {
         dependencies: {
-          sample: 'link:../sample',
+          'test.sample': 'link:../sample',
         },
       },
     });
@@ -30,7 +30,7 @@ describe('loadProjectConfig', () => {
 
     expect(config.projectRoot).toBe(projectRoot);
     expect(config.dependencies).toEqual({
-      sample: 'link:../sample',
+      'test.sample': 'link:../sample',
     });
     expect(config.usesLocalLock).toBe(false);
   });
@@ -132,24 +132,24 @@ describe('loadProjectConfig', () => {
     const projectRoot = await createTempProject({
       exm: {
         dependencies: {
-          shared: 'https://github.com/feb/shared.git#main',
-          overridden: 'https://github.com/feb/original.git#main',
+          'test.shared': 'https://github.com/feb/shared.git#main',
+          'test.overridden': 'https://github.com/feb/original.git#main',
         },
       },
     });
     await writeFile(path.join(projectRoot, EXM_LOCAL_FILE), [
       'dependencies:',
-      '  overridden: link:../local-overridden',
-      '  localOnly: link:../local-only',
+      '  test.overridden: link:../local-overridden',
+      '  test.localOnly: link:../local-only',
       '',
     ].join('\n'));
 
     const config = await loadProjectConfig(projectRoot);
 
     expect(config.dependencies).toEqual({
-      shared: 'https://github.com/feb/shared.git#main',
-      overridden: 'link:../local-overridden',
-      localOnly: 'link:../local-only',
+      'test.shared': 'https://github.com/feb/shared.git#main',
+      'test.overridden': 'link:../local-overridden',
+      'test.localOnly': 'link:../local-only',
     });
     expect(config.usesLocalLock).toBe(true);
   });
@@ -163,20 +163,20 @@ describe('loadProjectConfig', () => {
     const projectRoot = await createTempProject({
       exm: {
         dependencies: {
-          sample: 'link:../sample',
+          'test.sample': 'link:../sample',
         },
       },
     });
     await writeFile(path.join(projectRoot, EXM_LOCAL_FILE), [
       'dependencies:',
-      '  sample: link:../sample',
+      '  test.sample: link:../sample',
       '',
     ].join('\n'));
 
     const config = await loadProjectConfig(projectRoot);
 
     expect(config.dependencies).toEqual({
-      sample: 'link:../sample',
+      'test.sample': 'link:../sample',
     });
     expect(config.usesLocalLock).toBe(false);
   });
@@ -191,7 +191,7 @@ describe('readDependencies', () => {
     /// exm rejects ids that cannot map to one extension directory name.
     expect(() => readDependencies({
       '../bad': 'link:../bad',
-    })).toThrow('single path segment');
+    })).toThrow('extensionId');
   });
 
   it('should require string source specifiers', () => {
@@ -201,7 +201,7 @@ describe('readDependencies', () => {
     /// @expect
     /// exm rejects non-string source specifiers.
     expect(() => readDependencies({
-      sample: 1,
+      'test.sample': 1,
     })).toThrow('must use a string');
   });
 });
