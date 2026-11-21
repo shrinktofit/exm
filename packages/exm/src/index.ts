@@ -1,6 +1,7 @@
 export { initProjectConfig } from './config/init-project.js';
 export type { InitProjectConfigOptions, InitProjectConfigResult, InitProjectConfigStatus } from './config/init-project.js';
-export { EXM_INSTALL_DIR, EXM_LOCAL_FILE, loadProjectConfig, readDependencies, validateExtensionId } from './config/project-config.js';
+export { EXM_INSTALL_DIR, EXM_LOCAL_FILE, loadProjectConfig, readDependencies } from './config/project-config.js';
+export { validateExtensionId } from './config/extension-manifest.js';
 export type { ExmProjectConfig } from './config/project-config.js';
 export { installProjectExtensions, updateProjectExtensions } from './installer/extension-installer.js';
 export { resolveExmCacheRoot } from './installer/cache-root.js';

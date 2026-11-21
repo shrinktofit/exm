@@ -7,6 +7,8 @@ import path from 'node:path';
 import { Transform, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { extract as extractTar } from 'tar';
+import semverModule from 'semver';
+import { assertExtensionIdentity, validateExtensionId } from '../config/extension-manifest.js';
 import { assertDirectory, copyDirectory, pathExists } from '../fs/path.js';
 import { elapsedMs, nowMs } from '../timing.js';
 import { loadNpmConfigOptions } from './npm-source.js';
@@ -114,11 +116,11 @@ export class ExmRegistrySource implements ExtensionSource {
   ) {}
 
   public canResolve(spec: string): boolean {
-    return spec.startsWith('exm:');
+    return isExmRegistryVersionRange(spec);
   }
 
   public async resolve(request: ExtensionRequest, context: SourceContext): Promise<ResolvedExtension> {
-    const exmSpecifier = await parseExmRegistrySpecifier(request.spec);
+    const exmSpecifier = await parseExmRegistrySpecifier(request.id, request.spec);
     const registry = readRequiredRegistry(context.exmRegistry, request.spec);
     const locked = await this.getUsableLockedResolution(request.previous, registry, exmSpecifier, context);
     const exm = locked ?? await this.registryClient.resolve({
@@ -157,6 +159,7 @@ export class ExmRegistrySource implements ExtensionSource {
       cachePopulateMs = elapsedMs(cachePopulateStartMs);
     }
 
+    await assertExtensionIdentity(resolved.sourcePath, resolved.id);
     const targetPath = path.join(context.installRoot, resolved.id);
     const cacheCopyStartMs = nowMs();
     await copyDirectory(resolved.sourcePath, targetPath);
@@ -186,7 +189,7 @@ export class ExmRegistrySource implements ExtensionSource {
     const resolution = previous?.resolution;
     const previousSpecifier = previous === undefined
       ? undefined
-      : await parseLockedExmRegistrySpecifier(previous.spec);
+      : await parseLockedExmRegistrySpecifier(exmSpecifier.packageName, previous.spec);
 
     if (
       resolution === undefined
@@ -343,29 +346,11 @@ export class SemverExmVersionRange implements ExmVersionRange {
   }
 }
 
-export async function parseExmRegistrySpecifier(spec: string): Promise<ExmRegistrySpecifier> {
-  if (!spec.startsWith('exm:')) {
-    throw new Error(withSupportedDependencySpecifiers(
-      `exm registry dependency source "${spec}" must start with exm:`,
-    ));
-  }
-
-  const rawPackageSpec = spec.slice('exm:'.length);
-  const separatorIndex = findVersionSeparator(rawPackageSpec);
-
-  if (separatorIndex < 0) {
-    throw new Error(withSupportedDependencySpecifiers(
-      `exm registry dependency source "${spec}" must include a package name and version range`,
-    ));
-  }
-
-  const packageName = rawPackageSpec.slice(0, separatorIndex);
-  const range = rawPackageSpec.slice(separatorIndex + 1);
-  validateExmPackageName(spec, packageName);
-  await validateExmVersionRange(spec, range);
-
+export async function parseExmRegistrySpecifier(extensionId: string, range: string): Promise<ExmRegistrySpecifier> {
+  validateExtensionId(extensionId, 'registry extensionId');
+  await validateExmVersionRange(range);
   return {
-    packageName,
+    packageName: extensionId,
     range,
     ...optionalStringField('exactVersion', await readExactVersion(range)),
   };
@@ -537,9 +522,9 @@ async function extractExmRegistryArtifact(tarballPath: string, targetPath: strin
   }
 }
 
-async function parseLockedExmRegistrySpecifier(spec: string): Promise<ExmRegistrySpecifier | undefined> {
+async function parseLockedExmRegistrySpecifier(extensionId: string, spec: string): Promise<ExmRegistrySpecifier | undefined> {
   try {
-    return await parseExmRegistrySpecifier(spec);
+    return await parseExmRegistrySpecifier(extensionId, spec);
   } catch {
     return undefined;
   }
@@ -568,41 +553,16 @@ function createExmCacheKey(resolved: ResolvedExmRegistryExtension): string {
     .slice(0, 16);
 }
 
-function findVersionSeparator(rawPackageSpec: string): number {
-  if (rawPackageSpec.startsWith('@')) {
-    const slashIndex = rawPackageSpec.indexOf('/');
-
-    if (slashIndex < 0) {
-      return -1;
-    }
-
-    return rawPackageSpec.indexOf('@', slashIndex + 1);
-  }
-
-  return rawPackageSpec.lastIndexOf('@');
-}
-
-function validateExmPackageName(spec: string, packageName: string): void {
-  const nameSegment = '[a-z0-9][a-z0-9._~-]*';
-  const packagePattern = new RegExp(`^(?:${nameSegment}|@${nameSegment}/${nameSegment})$`);
-
-  if (!packagePattern.test(packageName)) {
-    throw new Error(withSupportedDependencySpecifiers(
-      `exm registry dependency source "${spec}" package name is invalid`,
-    ));
-  }
-}
-
-async function validateExmVersionRange(spec: string, range: string): Promise<void> {
+async function validateExmVersionRange(range: string): Promise<void> {
   if (range.length === 0 || range === '*') {
     throw new Error(withSupportedDependencySpecifiers(
-      `exm registry dependency source "${spec}" must include an explicit version range`,
+      `exm registry dependency source "${range}" must include an explicit version range`,
     ));
   }
 
   if (/^[A-Za-z][A-Za-z0-9._-]*$/.test(range)) {
     throw new Error(withSupportedDependencySpecifiers(
-      `exm registry dependency source "${spec}" must not use a dist-tag`,
+      `exm registry dependency source "${range}" must not use a dist-tag`,
     ));
   }
 
@@ -610,7 +570,7 @@ async function validateExmVersionRange(spec: string, range: string): Promise<voi
 
   if (semver.validRange(range) === null) {
     throw new Error(withSupportedDependencySpecifiers(
-      `exm registry dependency source "${spec}" must include a semver version or range`,
+      `exm registry dependency source "${range}" must include a semver version or range`,
     ));
   }
 }
@@ -671,4 +631,8 @@ function optionalNumberField<Key extends string>(key: Key, value: number | undef
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export function isExmRegistryVersionRange(spec: string): boolean {
+  return (semverModule as SemverModule).validRange(spec) !== null;
 }

@@ -1,4 +1,6 @@
 const supportedDependencySpecifierExamples = [
+  '^1.2.0',
+  '1.2.3',
   'npm:@company/my-extension@1.2.3',
   'npm:@company/my-extension@^1.2.0',
   'link:../my-extension',

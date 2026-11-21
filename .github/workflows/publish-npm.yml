@@ -3,7 +3,7 @@ name: Release npm packages
 on:
   push:
     branches:
-      - stf/dev
+      - main
   workflow_dispatch:
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}

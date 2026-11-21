@@ -110,9 +110,9 @@ describe('publishExtensionPackage', () => {
       deployDir: path.join(packageRoot, '.deploy'),
       dryRun: true,
       registry: REGISTRY_URL,
-      registryPackageName: '@feb/extension-sample',
-      metadataUrl: 'https://registry.example.com/%40feb/extension-sample',
-      artifactUrl: 'https://registry.example.com/%40feb/extension-sample/1.2.3/extension.tgz',
+      extensionId: 'test.extension',
+      metadataUrl: 'https://registry.example.com/test.extension',
+      artifactUrl: 'https://registry.example.com/test.extension/1.2.3/extension.tgz',
     });
     expect(result.integrity).toMatch(/^sha512-/);
     expect(result.size).toBeGreaterThan(0);
@@ -126,7 +126,7 @@ describe('publishExtensionPackage', () => {
     expect(registryClient.plans).toHaveLength(1);
     expect(registryClient.plans[0]).toMatchObject({
       registry: REGISTRY_URL,
-      packageName: '@feb/extension-sample',
+      packageName: 'test.extension',
       version: '1.2.3',
       projectRoot: packageRoot,
     });
@@ -157,7 +157,7 @@ describe('publishExtensionPackage', () => {
     expect(registryClient.publishes).toHaveLength(1);
     expect(registryClient.publishes[0]).toMatchObject({
       registry: REGISTRY_URL,
-      packageName: '@feb/extension-sample',
+      packageName: 'test.extension',
       version: '1.2.3',
       integrity: result.integrity,
       size: result.size,
@@ -168,131 +168,6 @@ describe('publishExtensionPackage', () => {
     expect(registryClient.tarballEntries).toContain('package/node_modules/@feb/runtime/linked.js');
     expect(registryClient.tarballEntryTypes.get('package/node_modules/@feb/runtime/linked.js')).toBe('File');
     expect(registryClient.tarballPackageJson?.name).toBe('@feb/extension-sample');
-  });
-
-  it('should publish to registryPackageName while deploying the source package', async () => {
-    /// @case
-    /// 1. The source package declares package.json exm.registryPackageName.
-    /// 2. exm publish runs for the source package name.
-    /// @expect
-    /// pnpm deploy still filters the source package, but the registry request and URLs use registryPackageName.
-    const { packageRoot, workspaceRoot } = await createWorkspace('@feb/extension-source', {
-      registryPackageName: '@org/some-extension',
-    });
-    const fake = createFakePublishCommands('@feb/extension-source', '1.2.3');
-    const registryClient = new FakeRegistryPublishClient();
-
-    const result = await publishExtensionPackage({
-      packageName: '@feb/extension-source',
-      cwd: workspaceRoot,
-      dryRun: true,
-      commandRunner: fake.runner,
-      registryClient,
-    });
-
-    expect(fake.commands[0]?.args).toContain('@feb/extension-source');
-    expect(registryClient.plans).toHaveLength(1);
-    expect(registryClient.plans[0]).toMatchObject({
-      packageName: '@org/some-extension',
-      projectRoot: packageRoot,
-    });
-    expect(result).toMatchObject({
-      packageName: '@feb/extension-source',
-      sourcePackageName: '@feb/extension-source',
-      registryPackageName: '@org/some-extension',
-      metadataUrl: 'https://registry.example.com/%40org/some-extension',
-      artifactUrl: 'https://registry.example.com/%40org/some-extension/1.2.3/extension.tgz',
-    });
-  });
-
-  it('should patch deployed package name to extensionId without changing registry package name', async () => {
-    /// @case
-    /// 1. The source package declares package.json exm.extensionId.
-    /// 2. exm publish packs the generated .deploy directory.
-    /// @expect
-    /// The registry package remains the source package name, and the artifact package.json name becomes extensionId.
-    const { packageRoot } = await createWorkspace('@feb/extension-sample', {
-      extensionId: 'sample-extension',
-    });
-    const fake = createFakePublishCommands('@feb/extension-sample', '1.2.3');
-    const registryClient = new FakeRegistryPublishClient();
-
-    const result = await publishExtensionPackage({
-      packageName: '@feb/extension-sample',
-      cwd: packageRoot,
-      commandRunner: fake.runner,
-      registryClient,
-    });
-
-    expect(result).toMatchObject({
-      packageName: '@feb/extension-sample',
-      registryPackageName: '@feb/extension-sample',
-      extensionId: 'sample-extension',
-    });
-    expect(registryClient.publishes[0]?.packageName).toBe('@feb/extension-sample');
-    expect(registryClient.tarballPackageJson?.name).toBe('sample-extension');
-  });
-
-  it('should keep registryPackageName and extensionId independent when both are configured', async () => {
-    /// @case
-    /// 1. The source package declares both package.json exm.registryPackageName and exm.extensionId.
-    /// 2. exm publish uploads the generated artifact.
-    /// @expect
-    /// Registry metadata uses registryPackageName while the artifact package.json name uses extensionId.
-    const { packageRoot } = await createWorkspace('@feb/extension-source', {
-      registryPackageName: '@org/some-extension',
-      extensionId: 'runtime-extension',
-    });
-    const fake = createFakePublishCommands('@feb/extension-source', '1.2.3');
-    const registryClient = new FakeRegistryPublishClient();
-
-    const result = await publishExtensionPackage({
-      packageName: '@feb/extension-source',
-      cwd: packageRoot,
-      commandRunner: fake.runner,
-      registryClient,
-    });
-
-    expect(result).toMatchObject({
-      packageName: '@feb/extension-source',
-      sourcePackageName: '@feb/extension-source',
-      registryPackageName: '@org/some-extension',
-      extensionId: 'runtime-extension',
-      metadataUrl: 'https://registry.example.com/%40org/some-extension',
-      artifactUrl: 'https://registry.example.com/%40org/some-extension/1.2.3/extension.tgz',
-    });
-    expect(registryClient.publishes[0]?.packageName).toBe('@org/some-extension');
-    expect(registryClient.tarballPackageJson?.name).toBe('runtime-extension');
-  });
-
-  it('should reject invalid publish identity config before registry requests', async () => {
-    /// @case
-    /// 1. package.json exm.registryPackageName is not a valid npm package name.
-    /// 2. package.json exm.extensionId is not a single path segment.
-    /// @expect
-    /// exm rejects each invalid identity before contacting the registry server.
-    const invalidRegistry = await createWorkspace('@feb/extension-sample', {
-      registryPackageName: '@Bad/extension',
-    });
-    const invalidExtension = await createWorkspace('@feb/extension-sample', {
-      extensionId: 'bad/id',
-    });
-    const registryClient = new FakeRegistryPublishClient();
-
-    await expect(publishExtensionPackage({
-      packageName: '@feb/extension-sample',
-      cwd: invalidRegistry.packageRoot,
-      commandRunner: createFakePublishCommands('@feb/extension-sample', '1.2.3').runner,
-      registryClient,
-    })).rejects.toThrow('package.json exm.registryPackageName must be a valid npm package name');
-    await expect(publishExtensionPackage({
-      packageName: '@feb/extension-sample',
-      cwd: invalidExtension.packageRoot,
-      commandRunner: createFakePublishCommands('@feb/extension-sample', '1.2.3').runner,
-      registryClient,
-    })).rejects.toThrow('package.json exm.extensionId must be a single path segment');
-    expect(registryClient.plans).toEqual([]);
-    expect(registryClient.publishes).toEqual([]);
   });
 
   it('should use a command-line registry override instead of package.json exm.registry', async () => {
@@ -315,10 +190,10 @@ describe('publishExtensionPackage', () => {
     });
 
     expect(result.registry).toBe('https://override.example.com/exm/');
-    expect(result.metadataUrl).toBe('https://override.example.com/exm/%40feb/extension-sample');
+    expect(result.metadataUrl).toBe('https://override.example.com/exm/test.extension');
     expect(registryClient.plans).toHaveLength(1);
     expect(registryClient.plans[0]?.registry).toBe('https://override.example.com/exm/');
-    expect(registryClient.plans[0]?.packageName).toBe('@feb/extension-sample');
+    expect(registryClient.plans[0]?.packageName).toBe('test.extension');
   });
 
   it('should allow a command-line registry when package.json has no exm.registry', async () => {
@@ -384,7 +259,7 @@ describe('publishExtensionPackage', () => {
       registryClient,
     });
 
-    expect(result.artifactUrl).toBe('https://registry.example.com/%40feb/extension-sample/0.0.1-alpha.1/extension.tgz');
+    expect(result.artifactUrl).toBe('https://registry.example.com/test.extension/0.0.1-alpha.1/extension.tgz');
     expect(registryClient.publishes[0]?.version).toBe('0.0.1-alpha.1');
   });
 
@@ -617,8 +492,6 @@ async function createWorkspace(
   packageName: string,
   options: {
     readonly registry?: boolean;
-    readonly registryPackageName?: string;
-    readonly extensionId?: string;
   } = {},
 ): Promise<{ packageRoot: string; workspaceRoot: string }> {
   const workspaceRoot = await createTempWorkspaceRoot();
@@ -629,11 +502,10 @@ async function createWorkspace(
       : {
         registry: REGISTRY_URL,
       }),
-    ...(options.registryPackageName === undefined ? {} : { registryPackageName: options.registryPackageName }),
-    ...(options.extensionId === undefined ? {} : { extensionId: options.extensionId }),
   };
   await writePackageJson(packageRoot, {
     name: packageName,
+    vortex: { extensionId: 'test.extension' },
     version: '1.2.3',
     private: true,
     ...(Object.keys(exm).length === 0 ? {} : { exm }),
@@ -649,6 +521,7 @@ async function createLoosePackage(packageName: string): Promise<string> {
   const packageRoot = await mkWorkspaceDirectory('exm-publish-loose-');
   await writePackageJson(packageRoot, {
     name: packageName,
+    vortex: { extensionId: 'test.extension' },
     version: '1.2.3',
     exm: {
       registry: REGISTRY_URL,
@@ -676,6 +549,7 @@ async function writeDeployOutput(deployDir: string, packageName: string, version
   await mkdir(path.join(deployDir, 'node_modules', '@feb', 'runtime'), { recursive: true });
   await writePackageJson(deployDir, {
     name: packageName,
+    vortex: { extensionId: 'test.extension' },
     version,
     private: true,
     dependencies: {

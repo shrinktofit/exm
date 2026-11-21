@@ -109,7 +109,7 @@ describe('installProjectExtensions cache root', () => {
 
     expect(messages).toHaveLength(1);
     expect(messages[0]).toMatch(new RegExp(
-      `^installed sample from record -> ${escapeRegExp(path.join('extensions', 'sample'))} \\[cache=miss resolve=\\d+ms materialize=\\d+ms populate=34ms copy=12ms total=\\d+ms\\]$`,
+      `^installed test.sample from record -> ${escapeRegExp(path.join('extensions', 'test.sample'))} \\[cache=miss resolve=\\d+ms materialize=\\d+ms populate=34ms copy=12ms total=\\d+ms\\]$`,
     ));
   });
 
@@ -136,7 +136,7 @@ describe('installProjectExtensions cache root', () => {
 
     expect(messages).toHaveLength(1);
     expect(messages[0]).toMatch(new RegExp(
-      `^updated sample from record -> ${escapeRegExp(path.join('extensions', 'sample'))} \\[cache=hit resolve=\\d+ms materialize=\\d+ms copy=12ms total=\\d+ms\\]$`,
+      `^updated test.sample from record -> ${escapeRegExp(path.join('extensions', 'test.sample'))} \\[cache=hit resolve=\\d+ms materialize=\\d+ms copy=12ms total=\\d+ms\\]$`,
     ));
   });
 
@@ -147,7 +147,8 @@ describe('installProjectExtensions cache root', () => {
     const cacheRoot = path.join(projectRoot, '.exm', 'cache');
     const messages: string[] = [];
     await writeProject(projectRoot);
-    await mkdir(path.join(projectRoot, 'extensions', 'sample'), { recursive: true });
+    await mkdir(path.join(projectRoot, 'extensions', 'test.sample'), { recursive: true });
+    await writeFile(path.join(projectRoot, 'extensions', 'test.sample', 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
 
     await installProjectExtensions({
       projectRoot,
@@ -164,7 +165,7 @@ describe('installProjectExtensions cache root', () => {
 
     expect(messages).toHaveLength(1);
     expect(messages[0]).toMatch(new RegExp(
-      `^reinstalled sample from record -> ${escapeRegExp(path.join('extensions', 'sample'))} \\[cache=miss resolve=\\d+ms remove=\\d+ms materialize=\\d+ms copy=7ms total=\\d+ms\\]$`,
+      `^reinstalled test.sample from record -> ${escapeRegExp(path.join('extensions', 'test.sample'))} \\[cache=miss resolve=\\d+ms remove=\\d+ms materialize=\\d+ms copy=7ms total=\\d+ms\\]$`,
     ));
   });
 
@@ -175,11 +176,12 @@ describe('installProjectExtensions cache root', () => {
     const cacheRoot = path.join(projectRoot, '.exm', 'cache');
     const messages: string[] = [];
     await writeProject(projectRoot);
-    await mkdir(path.join(projectRoot, 'extensions', 'sample'), { recursive: true });
+    await mkdir(path.join(projectRoot, 'extensions', 'test.sample'), { recursive: true });
+    await writeFile(path.join(projectRoot, 'extensions', 'test.sample', 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
     await saveExmLock(projectRoot, {
       lockFileVersion: 1,
       extensions: {
-        sample: {
+        'test.sample': {
           spec: 'record:sample',
           resolution: {
             commit: '0123456789abcdef0123456789abcdef01234567',
@@ -199,7 +201,7 @@ describe('installProjectExtensions cache root', () => {
       },
     });
 
-    expect(messages).toEqual(['skipped sample; already installed']);
+    expect(messages).toEqual(['skipped test.sample; already installed']);
   });
 });
 
@@ -232,6 +234,7 @@ class RecordingSource implements ExtensionSource {
     this.cacheRoots.push(context.cacheRoot);
     const targetPath = path.join(context.installRoot, resolved.id);
     await mkdir(targetPath, { recursive: true });
+    await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({ name: 'fixture', vortex: { extensionId: 'test.sample' } }));
 
     return {
       id: resolved.id,
@@ -261,7 +264,7 @@ async function writeProject(projectRoot: string): Promise<void> {
   await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
     exm: {
       dependencies: {
-        sample: 'record:sample',
+        'test.sample': 'record:sample',
       },
     },
   }));

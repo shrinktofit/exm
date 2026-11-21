@@ -13,32 +13,18 @@ afterEach(async () => {
 });
 
 describe('parseExmRegistrySpecifier', () => {
-  it('should parse scoped and unscoped exm registry specs', async () => {
-    /// @case
-    /// 1. exm registry specs include package names and exact or ranged versions.
-    /// 2. exm parses the specs before reading registry metadata.
-    /// @expect
-    /// The package name and semver range are separated from the extension id.
-    await expect(parseExmRegistrySpecifier('exm:@company/tool@^1.2.0')).resolves.toEqual({
-      packageName: '@company/tool',
-      range: '^1.2.0',
+  it('uses the dependency key and validates bare ranges', async () => {
+    /// @case A mixed-case ID uses ranged, exact and invalid registry dependency values.
+    /// @expect Identity is preserved and legacy prefixed or non-version specs are rejected.
+    await expect(parseExmRegistrySpecifier('Example.Tools', '^1.2.0')).resolves.toEqual({
+      packageName: 'Example.Tools', range: '^1.2.0',
     });
-    await expect(parseExmRegistrySpecifier('exm:plain-tool@1.2.3')).resolves.toEqual({
-      packageName: 'plain-tool',
-      range: '1.2.3',
-      exactVersion: '1.2.3',
+    await expect(parseExmRegistrySpecifier('Example.Tools', '1.2.3')).resolves.toEqual({
+      packageName: 'Example.Tools', range: '1.2.3', exactVersion: '1.2.3',
     });
-  });
-
-  it('should reject unsupported exm registry specs', async () => {
-    /// @case
-    /// 1. exm registry specs omit a version, use a dist-tag, or use an invalid package name.
-    /// 2. exm validates the spec before registry access.
-    /// @expect
-    /// Unsupported forms are rejected so registry resolution stays deterministic.
-    await expect(parseExmRegistrySpecifier('exm:@company/tool')).rejects.toThrow('must include a package name and version range');
-    await expect(parseExmRegistrySpecifier('exm:@company/tool@latest')).rejects.toThrow('must not use a dist-tag');
-    await expect(parseExmRegistrySpecifier('exm:@company/:bad@1.0.0')).rejects.toThrow('package name is invalid');
+    await expect(parseExmRegistrySpecifier('Example.Tools', 'latest')).rejects.toThrow('dist-tag');
+    await expect(parseExmRegistrySpecifier('Example.Tools', 'exm:Example.Tools@1.0.0')).rejects.toThrow('semver');
+    await expect(parseExmRegistrySpecifier('single', '1.0.0')).rejects.toThrow('extensionId');
   });
 });
 
@@ -49,13 +35,13 @@ describe('exm npm-compatible package metadata', () => {
     /// 2. exm normalizes that metadata before resolving artifact tarballs.
     /// @expect
     /// The scoped package metadata URL is npm-compatible and artifact metadata stays available under exm.artifact.
-    expect(createExmPackageMetadataUrl('https://registry.example.com/exm/', '@company/tool')).toBe('https://registry.example.com/exm/%40company/tool');
-    expect(normalizeExmPackageMetadata(createPackageMetadata(), '@company/tool', 'metadata')).toMatchObject({
-      name: '@company/tool',
+    expect(createExmPackageMetadataUrl('https://registry.example.com/exm/', 'test.company-tool')).toBe('https://registry.example.com/exm/test.company-tool');
+    expect(normalizeExmPackageMetadata(createPackageMetadata(), 'test.company-tool', 'metadata')).toMatchObject({
+      name: 'test.company-tool',
       versions: {
         '1.2.3': {
           dist: {
-            tarball: 'https://registry.example.com/exm/%40company/tool/1.2.3/extension.tgz',
+            tarball: 'https://registry.example.com/exm/test.company-tool/1.2.3/extension.tgz',
             integrity: 'sha512-aaaaaaaa',
           },
           exm: {
@@ -76,7 +62,7 @@ describe('exm npm-compatible package metadata', () => {
     /// 2. exm validates it before installing.
     /// @expect
     /// Invalid metadata is rejected instead of guessing a Nexus URL.
-    expect(() => normalizeExmPackageMetadata({ name: '@company/tool', versions: { '1.2.3': { name: '@company/tool', version: '1.2.3' } } }, '@company/tool', 'metadata')).toThrow('dist must be an object');
+    expect(() => normalizeExmPackageMetadata({ name: 'test.company-tool', versions: { '1.2.3': { name: 'test.company-tool', version: '1.2.3' } } }, 'test.company-tool', 'metadata')).toThrow('dist must be an object');
   });
 });
 
@@ -92,10 +78,10 @@ describe('ExmRegistrySource', () => {
     const context = createContext(await createWorkspace());
 
     const resolved = await source.resolve({
-      id: 'company-tool',
-      spec: 'exm:@company/tool@^1.2.0',
+      id: 'test.company-tool',
+      spec: '^1.2.0',
       previous: {
-        spec: 'exm:@company/tool@^1.2.0',
+        spec: '^1.2.0',
         resolution: {
           version: '1.2.3',
           integrity: 'sha512-locked',
@@ -107,7 +93,7 @@ describe('ExmRegistrySource', () => {
     expect(client.lockedRequests).toEqual([
       {
         registry: 'https://registry.example.com/exm/',
-        packageName: '@company/tool',
+        packageName: 'test.company-tool',
         version: '1.2.3',
         integrity: 'sha512-locked',
         projectRoot: context.projectRoot,
@@ -115,9 +101,9 @@ describe('ExmRegistrySource', () => {
     ]);
     expect(resolved.exm).toEqual({
       registry: 'https://registry.example.com/exm/',
-      packageName: '@company/tool',
+      packageName: 'test.company-tool',
       version: '1.2.3',
-      resolved: 'https://registry.example.com/exm/%40company/tool/1.2.3/extension.tgz',
+      resolved: 'https://registry.example.com/exm/test.company-tool/1.2.3/extension.tgz',
       integrity: 'sha512-locked',
     });
   });
@@ -135,8 +121,8 @@ describe('ExmRegistrySource', () => {
     };
 
     await expect(source.resolve({
-      id: 'company-tool',
-      spec: 'exm:@company/tool@^1.2.0',
+      id: 'test.company-tool',
+      spec: '^1.2.0',
     }, context)).rejects.toThrow('requires package.json exm.registry');
   });
 
@@ -151,15 +137,15 @@ describe('ExmRegistrySource', () => {
     const client = new FakeExmRegistryClient([createExmResolution('1.2.3')]);
     const source = new ExmRegistrySource(client, new FakeExmVersionRange(true));
     const resolved = await source.resolve({
-      id: 'company-tool',
-      spec: 'exm:@company/tool@1.2.3',
+      id: 'test.company-tool',
+      spec: '1.2.3',
     }, context);
 
     const materialized = await source.materialize(resolved, context);
 
     expect(materialized).toEqual({
-      id: 'company-tool',
-      path: path.join(context.installRoot, 'company-tool'),
+      id: 'test.company-tool',
+      path: path.join(context.installRoot, 'test.company-tool'),
       mode: 'copy',
       cache: {
         path: resolved.sourcePath,
@@ -177,7 +163,7 @@ describe('ExmRegistrySource', () => {
         projectRoot: context.projectRoot,
       },
     ]);
-    await expect(readFile(path.join(materialized.path, 'package.json'), 'utf8')).resolves.toContain('@company/tool');
+    await expect(readFile(path.join(materialized.path, 'package.json'), 'utf8')).resolves.toContain('test.company-tool');
 
     const cachedMaterialized = await source.materialize(resolved, context);
 
@@ -199,7 +185,7 @@ describe('HttpExmRegistryClient', () => {
     /// 2. exm resolves a ranged dependency.
     /// @expect
     /// The highest semver version satisfying the range is selected from npm-compatible metadata.
-    const metadataUrl = 'https://registry.example.com/exm/%40company/tool';
+    const metadataUrl = 'https://registry.example.com/exm/test.company-tool';
     const remote = new FakeRemoteClient({
       [metadataUrl]: createPackageMetadata({
         '1.2.3': createPackageVersion('1.2.3', 'sha512-aaaaaaaa'),
@@ -211,7 +197,7 @@ describe('HttpExmRegistryClient', () => {
 
     const resolved = await client.resolve({
       registry: 'https://registry.example.com/exm',
-      packageName: '@company/tool',
+      packageName: 'test.company-tool',
       range: '^1.2.0',
       projectRoot: 'project',
     });
@@ -219,9 +205,9 @@ describe('HttpExmRegistryClient', () => {
     expect(remote.reads).toEqual([metadataUrl]);
     expect(resolved).toEqual({
       registry: 'https://registry.example.com/exm/',
-      packageName: '@company/tool',
+      packageName: 'test.company-tool',
       version: '1.2.4',
-      resolved: 'https://registry.example.com/exm/%40company/tool/1.2.4/extension.tgz',
+      resolved: 'https://registry.example.com/exm/test.company-tool/1.2.4/extension.tgz',
       integrity: 'sha512-bbbbbbbb',
       size: 124,
     });
@@ -233,7 +219,7 @@ describe('HttpExmRegistryClient', () => {
     /// 2. exm rebuilds a missing extension target.
     /// @expect
     /// The locked version tarball is used and no range resolution to the newer version occurs.
-    const metadataUrl = 'https://registry.example.com/exm/%40company/tool';
+    const metadataUrl = 'https://registry.example.com/exm/test.company-tool';
     const remote = new FakeRemoteClient({
       [metadataUrl]: createPackageMetadata({
         '1.2.3': createPackageVersion('1.2.3', 'sha512-aaaaaaaa'),
@@ -244,7 +230,7 @@ describe('HttpExmRegistryClient', () => {
 
     const resolved = await client.resolveLocked({
       registry: 'https://registry.example.com/exm',
-      packageName: '@company/tool',
+      packageName: 'test.company-tool',
       version: '1.2.3',
       integrity: 'sha512-aaaaaaaa',
       projectRoot: 'project',
@@ -252,7 +238,7 @@ describe('HttpExmRegistryClient', () => {
 
     expect(remote.reads).toEqual([metadataUrl]);
     expect(resolved.version).toBe('1.2.3');
-    expect(resolved.resolved).toBe('https://registry.example.com/exm/%40company/tool/1.2.3/extension.tgz');
+    expect(resolved.resolved).toBe('https://registry.example.com/exm/test.company-tool/1.2.3/extension.tgz');
   });
 
   it('should require package metadata before resolving package versions', async () => {
@@ -261,13 +247,13 @@ describe('HttpExmRegistryClient', () => {
     /// 2. exm resolves an exm dependency.
     /// @expect
     /// Resolution fails instead of deriving an internal Nexus URL.
-    const metadataUrl = 'https://registry.example.com/exm/%40company/tool';
+    const metadataUrl = 'https://registry.example.com/exm/test.company-tool';
     const remote = new FakeRemoteClient({});
     const client = new HttpExmRegistryClient(remote);
 
     await expect(client.resolve({
       registry: 'https://registry.example.com/exm',
-      packageName: '@company/tool',
+      packageName: 'test.company-tool',
       range: '^1.2.0',
       projectRoot: 'project',
     })).rejects.toThrow(`was not found at ${metadataUrl}`);
@@ -304,7 +290,7 @@ class FakeExmRegistryClient implements ExmRegistryClient {
       registry: request.registry,
       packageName: request.packageName,
       version: request.version,
-      resolved: `https://registry.example.com/exm/%40company/tool/${request.version}/extension.tgz`,
+      resolved: `https://registry.example.com/exm/test.company-tool/${request.version}/extension.tgz`,
       integrity: request.integrity,
     };
   }
@@ -314,6 +300,7 @@ class FakeExmRegistryClient implements ExmRegistryClient {
     await mkdir(targetPath, { recursive: true });
     await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({
       name: resolved.packageName,
+      vortex: { extensionId: 'test.company-tool' },
       version: resolved.version,
     }));
   }
@@ -349,9 +336,9 @@ class FakeRemoteClient implements ExmRegistryRemoteClient {
 function createExmResolution(version: string): ResolvedExmRegistryExtension {
   return {
     registry: 'https://registry.example.com/exm/',
-    packageName: '@company/tool',
+    packageName: 'test.company-tool',
     version,
-    resolved: `https://registry.example.com/exm/%40company/tool/${version}/extension.tgz`,
+    resolved: `https://registry.example.com/exm/test.company-tool/${version}/extension.tgz`,
     integrity: `sha512-${version}`,
     size: 100,
   };
@@ -359,7 +346,7 @@ function createExmResolution(version: string): ResolvedExmRegistryExtension {
 
 function createPackageMetadata(versions: Record<string, object> = { '1.2.3': createPackageVersion('1.2.3', 'sha512-aaaaaaaa') }): object {
   return {
-    'name': '@company/tool',
+    'name': 'test.company-tool',
     'versions': versions,
     'dist-tags': {
       latest: Object.keys(versions).at(-1),
@@ -372,10 +359,10 @@ function createPackageMetadata(versions: Record<string, object> = { '1.2.3': cre
 
 function createPackageVersion(version: string, integrity: string): object {
   return {
-    name: '@company/tool',
+    name: 'test.company-tool',
     version,
     dist: {
-      tarball: `https://registry.example.com/exm/%40company/tool/${version}/extension.tgz`,
+      tarball: `https://registry.example.com/exm/test.company-tool/${version}/extension.tgz`,
       integrity,
     },
     exm: {

@@ -28,7 +28,7 @@ describe('installProjectExtensions exm registry source', () => {
       exm: {
         registry: 'https://registry.example.com/exm',
         dependencies: {
-          'company-tool': 'exm:@company/tool@^1.2.0',
+          'test.company-tool': '^1.2.0',
         },
       },
     }));
@@ -36,7 +36,7 @@ describe('installProjectExtensions exm registry source', () => {
     const registry = createExmRegistry(client);
 
     const result = await installProjectExtensions({ projectRoot, registry, cacheRoot: path.join(workspace, 'cache') });
-    const targetPath = path.join(projectRoot, 'extensions', 'company-tool');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.company-tool');
     const lockContent = parse(await readFile(path.join(projectRoot, 'exm-lock.yaml'), 'utf8')) as {
       readonly lockFileVersion: number;
       readonly extensions: Record<string, {
@@ -55,7 +55,7 @@ describe('installProjectExtensions exm registry source', () => {
     expect(client.requests).toEqual([
       {
         registry: 'https://registry.example.com/exm/',
-        packageName: '@company/tool',
+        packageName: 'test.company-tool',
         range: '^1.2.0',
         projectRoot,
       },
@@ -63,7 +63,7 @@ describe('installProjectExtensions exm registry source', () => {
     expect(client.lockedRequests).toEqual([]);
     expect(result.installed).toEqual([
       expect.objectContaining({
-        id: 'company-tool',
+        id: 'test.company-tool',
         path: targetPath,
         mode: 'copy',
         cache: expect.objectContaining({
@@ -71,10 +71,10 @@ describe('installProjectExtensions exm registry source', () => {
         }),
       }),
     ]);
-    await expect(readFile(path.join(targetPath, 'package.json'), 'utf8')).resolves.toContain('@company/tool');
+    await expect(readFile(path.join(targetPath, 'package.json'), 'utf8')).resolves.toContain('test.company-tool');
     expect(lockContent.lockFileVersion).toBe(1);
-    expect(lockContent.extensions['company-tool']).toEqual({
-      spec: 'exm:@company/tool@^1.2.0',
+    expect(lockContent.extensions['test.company-tool']).toEqual({
+      spec: '^1.2.0',
       resolution: {
         version: '1.2.3',
         integrity: 'sha512-1.2.3',
@@ -96,15 +96,15 @@ describe('installProjectExtensions exm registry source', () => {
       exm: {
         registry: 'https://registry.example.com/exm/',
         dependencies: {
-          'company-tool': 'exm:@company/tool@^1.2.0',
+          'test.company-tool': '^1.2.0',
         },
       },
     }));
     await saveExmLock(projectRoot, {
       lockFileVersion: 1,
       extensions: {
-        'company-tool': {
-          spec: 'exm:@company/tool@^1.2.0',
+        'test.company-tool': {
+          spec: '^1.2.0',
           resolution: {
             version: '1.2.3',
             integrity: 'sha512-1.2.3',
@@ -121,7 +121,7 @@ describe('installProjectExtensions exm registry source', () => {
     expect(client.lockedRequests).toEqual([
       {
         registry: 'https://registry.example.com/exm/',
-        packageName: '@company/tool',
+        packageName: 'test.company-tool',
         version: '1.2.3',
         integrity: 'sha512-1.2.3',
         projectRoot,
@@ -129,15 +129,15 @@ describe('installProjectExtensions exm registry source', () => {
     ]);
     expect(result.installed).toEqual([
       expect.objectContaining({
-        id: 'company-tool',
-        path: path.join(projectRoot, 'extensions', 'company-tool'),
+        id: 'test.company-tool',
+        path: path.join(projectRoot, 'extensions', 'test.company-tool'),
         mode: 'copy',
         cache: expect.objectContaining({
           hit: false,
         }),
       }),
     ]);
-    await expect(readFile(path.join(projectRoot, 'extensions', 'company-tool', 'package.json'), 'utf8')).resolves.toContain('1.2.3');
+    await expect(readFile(path.join(projectRoot, 'extensions', 'test.company-tool', 'package.json'), 'utf8')).resolves.toContain('1.2.3');
   });
 
   it('should reinstall exm registry targets when the install-state marker is missing', async () => {
@@ -149,7 +149,7 @@ describe('installProjectExtensions exm registry source', () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-registry-marker-missing-'));
     tempRoots.push(workspace);
     const projectRoot = path.join(workspace, 'project');
-    const targetPath = path.join(projectRoot, 'extensions', 'company-tool');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.company-tool');
     await mkdir(targetPath, { recursive: true });
     await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({
       name: '@company/old-tool',
@@ -159,15 +159,15 @@ describe('installProjectExtensions exm registry source', () => {
       exm: {
         registry: 'https://registry.example.com/exm/',
         dependencies: {
-          'company-tool': 'exm:@company/tool@^1.2.0',
+          'test.company-tool': '^1.2.0',
         },
       },
     }));
     await saveExmLock(projectRoot, {
       lockFileVersion: 1,
       extensions: {
-        'company-tool': {
-          spec: 'exm:@company/tool@^1.2.0',
+        'test.company-tool': {
+          spec: '^1.2.0',
           resolution: {
             version: '1.2.3',
             integrity: 'sha512-1.2.3',
@@ -185,7 +185,7 @@ describe('installProjectExtensions exm registry source', () => {
 
     expect(result.installed).toEqual([
       expect.objectContaining({
-        id: 'company-tool',
+        id: 'test.company-tool',
         path: targetPath,
         mode: 'copy',
       }),
@@ -194,9 +194,9 @@ describe('installProjectExtensions exm registry source', () => {
     await expect(readInstallState(projectRoot)).resolves.toEqual({
       schemaVersion: 1,
       extensions: {
-        'company-tool': {
+        'test.company-tool': {
           sourceType: 'exm',
-          spec: 'exm:@company/tool@^1.2.0',
+          spec: '^1.2.0',
           version: '1.2.3',
           integrity: 'sha512-1.2.3',
         },
@@ -213,25 +213,26 @@ describe('installProjectExtensions exm registry source', () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-registry-marker-skip-'));
     tempRoots.push(workspace);
     const projectRoot = path.join(workspace, 'project');
-    const targetPath = path.join(projectRoot, 'extensions', 'company-tool');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.company-tool');
     await mkdir(targetPath, { recursive: true });
     await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({
-      name: '@company/tool',
+      name: 'test.company-tool',
+      vortex: { extensionId: 'test.company-tool' },
       version: '1.2.3',
     }));
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         registry: 'https://registry.example.com/exm/',
         dependencies: {
-          'company-tool': 'exm:@company/tool@^1.2.0',
+          'test.company-tool': '^1.2.0',
         },
       },
     }));
     await saveExmLock(projectRoot, {
       lockFileVersion: 1,
       extensions: {
-        'company-tool': {
-          spec: 'exm:@company/tool@^1.2.0',
+        'test.company-tool': {
+          spec: '^1.2.0',
           resolution: {
             version: '1.2.3',
             integrity: 'sha512-1.2.3',
@@ -240,9 +241,9 @@ describe('installProjectExtensions exm registry source', () => {
       },
     });
     await writeInstallState(projectRoot, {
-      'company-tool': {
+      'test.company-tool': {
         sourceType: 'exm',
-        spec: 'exm:@company/tool@^1.2.0',
+        spec: '^1.2.0',
         version: '1.2.3',
         integrity: 'sha512-1.2.3',
       },
@@ -256,7 +257,7 @@ describe('installProjectExtensions exm registry source', () => {
     });
 
     expect(result.installed).toEqual([]);
-    expect(result.skipped).toEqual(['company-tool']);
+    expect(result.skipped).toEqual(['test.company-tool']);
     await expect(readFile(path.join(targetPath, 'package.json'), 'utf8')).resolves.toContain('"version":"1.2.3"');
   });
 
@@ -270,7 +271,7 @@ describe('installProjectExtensions exm registry source', () => {
     tempRoots.push(workspace);
     const projectRoot = path.join(workspace, 'project');
     const sourceRoot = path.join(workspace, 'linked-source');
-    const targetPath = path.join(projectRoot, 'extensions', 'company-tool');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.company-tool');
     await mkdir(sourceRoot, { recursive: true });
     await mkdir(path.dirname(targetPath), { recursive: true });
     await writeFile(path.join(sourceRoot, 'package.json'), JSON.stringify({
@@ -282,15 +283,15 @@ describe('installProjectExtensions exm registry source', () => {
       exm: {
         registry: 'https://registry.example.com/exm/',
         dependencies: {
-          'company-tool': 'exm:@company/tool@^1.2.0',
+          'test.company-tool': '^1.2.0',
         },
       },
     }));
     await saveExmLock(projectRoot, {
       lockFileVersion: 1,
       extensions: {
-        'company-tool': {
-          spec: 'exm:@company/tool@^1.2.0',
+        'test.company-tool': {
+          spec: '^1.2.0',
           resolution: {
             version: '1.2.3',
             integrity: 'sha512-1.2.3',
@@ -299,9 +300,9 @@ describe('installProjectExtensions exm registry source', () => {
       },
     });
     await writeInstallState(projectRoot, {
-      'company-tool': {
+      'test.company-tool': {
         sourceType: 'exm',
-        spec: 'exm:@company/tool@^1.2.0',
+        spec: '^1.2.0',
         version: '1.2.3',
         integrity: 'sha512-1.2.3',
       },
@@ -316,7 +317,7 @@ describe('installProjectExtensions exm registry source', () => {
 
     expect(result.installed).toEqual([
       expect.objectContaining({
-        id: 'company-tool',
+        id: 'test.company-tool',
         path: targetPath,
         mode: 'copy',
       }),
@@ -335,25 +336,26 @@ describe('installProjectExtensions exm registry source', () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-registry-marker-mismatch-'));
     tempRoots.push(workspace);
     const projectRoot = path.join(workspace, 'project');
-    const targetPath = path.join(projectRoot, 'extensions', 'company-tool');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.company-tool');
     await mkdir(targetPath, { recursive: true });
     await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({
-      name: '@company/tool',
+      name: 'test.company-tool',
+      vortex: { extensionId: 'test.company-tool' },
       version: '1.2.2',
     }));
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         registry: 'https://registry.example.com/exm/',
         dependencies: {
-          'company-tool': 'exm:@company/tool@^1.2.0',
+          'test.company-tool': '^1.2.0',
         },
       },
     }));
     await saveExmLock(projectRoot, {
       lockFileVersion: 1,
       extensions: {
-        'company-tool': {
-          spec: 'exm:@company/tool@^1.2.0',
+        'test.company-tool': {
+          spec: '^1.2.0',
           resolution: {
             version: '1.2.3',
             integrity: 'sha512-1.2.3',
@@ -362,9 +364,9 @@ describe('installProjectExtensions exm registry source', () => {
       },
     });
     await writeInstallState(projectRoot, {
-      'company-tool': {
+      'test.company-tool': {
         sourceType: 'exm',
-        spec: 'exm:@company/tool@^1.2.0',
+        spec: '^1.2.0',
         version: '1.2.2',
         integrity: 'sha512-1.2.2',
       },
@@ -379,14 +381,14 @@ describe('installProjectExtensions exm registry source', () => {
 
     expect(result.installed).toEqual([
       expect.objectContaining({
-        id: 'company-tool',
+        id: 'test.company-tool',
         path: targetPath,
         mode: 'copy',
       }),
     ]);
     await expect(readInstallState(projectRoot)).resolves.toMatchObject({
       extensions: {
-        'company-tool': {
+        'test.company-tool': {
           version: '1.2.3',
           integrity: 'sha512-1.2.3',
         },
@@ -407,7 +409,7 @@ describe('installProjectExtensions exm registry source', () => {
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         dependencies: {
-          'company-tool': 'exm:@company/tool@^1.2.0',
+          'test.company-tool': '^1.2.0',
         },
       },
     }));
@@ -431,32 +433,33 @@ describe('installProjectExtensions exm registry source', () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-registry-marker-prune-'));
     tempRoots.push(workspace);
     const projectRoot = path.join(workspace, 'project');
-    const targetPath = path.join(projectRoot, 'extensions', 'company-tool');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.company-tool');
     await mkdir(targetPath, { recursive: true });
     await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({
-      name: '@company/tool',
+      name: 'test.company-tool',
+      vortex: { extensionId: 'test.company-tool' },
       version: '1.2.3',
     }));
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         registry: 'https://registry.example.com/exm/',
         dependencies: {
-          'company-tool': 'exm:@company/tool@^1.2.0',
+          'test.company-tool': '^1.2.0',
         },
       },
     }));
     await saveExmLock(projectRoot, {
       lockFileVersion: 1,
       extensions: {
-        'company-tool': {
-          spec: 'exm:@company/tool@^1.2.0',
+        'test.company-tool': {
+          spec: '^1.2.0',
           resolution: {
             version: '1.2.3',
             integrity: 'sha512-1.2.3',
           },
         },
         'stale': {
-          spec: 'exm:@company/stale@^1.0.0',
+          spec: '^1.0.0',
           resolution: {
             version: '1.0.0',
             integrity: 'sha512-1.0.0',
@@ -465,15 +468,15 @@ describe('installProjectExtensions exm registry source', () => {
       },
     });
     await writeInstallState(projectRoot, {
-      'company-tool': {
+      'test.company-tool': {
         sourceType: 'exm',
-        spec: 'exm:@company/tool@^1.2.0',
+        spec: '^1.2.0',
         version: '1.2.3',
         integrity: 'sha512-1.2.3',
       },
       'stale': {
         sourceType: 'exm',
-        spec: 'exm:@company/stale@^1.0.0',
+        spec: '^1.0.0',
         version: '1.0.0',
         integrity: 'sha512-1.0.0',
       },
@@ -488,15 +491,15 @@ describe('installProjectExtensions exm registry source', () => {
       readonly extensions: Record<string, unknown>;
     };
 
-    expect(Object.keys(lockContent.extensions)).toEqual(['company-tool']);
+    expect(Object.keys(lockContent.extensions)).toEqual(['test.company-tool']);
     await expect(readInstallState(projectRoot)).resolves.toMatchObject({
       extensions: {
-        'company-tool': {
+        'test.company-tool': {
           version: '1.2.3',
         },
       },
     });
-    expect(Object.keys((await readInstallState(projectRoot) as { readonly extensions: Record<string, unknown> }).extensions)).toEqual(['company-tool']);
+    expect(Object.keys((await readInstallState(projectRoot) as { readonly extensions: Record<string, unknown> }).extensions)).toEqual(['test.company-tool']);
   });
 });
 
@@ -510,25 +513,26 @@ describe('updateProjectExtensions exm registry source', () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-registry-update-'));
     tempRoots.push(workspace);
     const projectRoot = path.join(workspace, 'project');
-    const targetPath = path.join(projectRoot, 'extensions', 'company-tool');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.company-tool');
     await mkdir(targetPath, { recursive: true });
     await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({
-      name: '@company/tool',
+      name: 'test.company-tool',
+      vortex: { extensionId: 'test.company-tool' },
       version: '1.2.3',
     }));
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         registry: 'https://registry.example.com/exm/',
         dependencies: {
-          'company-tool': 'exm:@company/tool@^1.2.0',
+          'test.company-tool': '^1.2.0',
         },
       },
     }));
     await saveExmLock(projectRoot, {
       lockFileVersion: 1,
       extensions: {
-        'company-tool': {
-          spec: 'exm:@company/tool@^1.2.0',
+        'test.company-tool': {
+          spec: '^1.2.0',
           resolution: {
             version: '1.2.3',
             integrity: 'sha512-1.2.3',
@@ -546,7 +550,7 @@ describe('updateProjectExtensions exm registry source', () => {
 
     expect(result.updated).toEqual([
       expect.objectContaining({
-        id: 'company-tool',
+        id: 'test.company-tool',
         path: targetPath,
         mode: 'copy',
         cache: expect.objectContaining({
@@ -555,8 +559,8 @@ describe('updateProjectExtensions exm registry source', () => {
       }),
     ]);
     await expect(readFile(path.join(targetPath, 'package.json'), 'utf8')).resolves.toContain('1.2.4');
-    expect(lockContent.extensions['company-tool']?.resolution?.version).toBe('1.2.4');
-    expect(lockContent.extensions['company-tool']?.resolution?.integrity).toBe('sha512-1.2.4');
+    expect(lockContent.extensions['test.company-tool']?.resolution?.version).toBe('1.2.4');
+    expect(lockContent.extensions['test.company-tool']?.resolution?.integrity).toBe('sha512-1.2.4');
   });
 
   it('should skip exact exm registry versions that already match the lockfile', async () => {
@@ -568,25 +572,26 @@ describe('updateProjectExtensions exm registry source', () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-registry-update-exact-'));
     tempRoots.push(workspace);
     const projectRoot = path.join(workspace, 'project');
-    const targetPath = path.join(projectRoot, 'extensions', 'company-tool');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.company-tool');
     await mkdir(targetPath, { recursive: true });
     await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({
-      name: '@company/tool',
+      name: 'test.company-tool',
+      vortex: { extensionId: 'test.company-tool' },
       version: '1.2.3',
     }));
     await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({
       exm: {
         registry: 'https://registry.example.com/exm/',
         dependencies: {
-          'company-tool': 'exm:@company/tool@1.2.3',
+          'test.company-tool': '1.2.3',
         },
       },
     }));
     await saveExmLock(projectRoot, {
       lockFileVersion: 1,
       extensions: {
-        'company-tool': {
-          spec: 'exm:@company/tool@1.2.3',
+        'test.company-tool': {
+          spec: '1.2.3',
           resolution: {
             version: '1.2.3',
             integrity: 'sha512-1.2.3',
@@ -595,9 +600,9 @@ describe('updateProjectExtensions exm registry source', () => {
       },
     });
     await writeInstallState(projectRoot, {
-      'company-tool': {
+      'test.company-tool': {
         sourceType: 'exm',
-        spec: 'exm:@company/tool@1.2.3',
+        spec: '1.2.3',
         version: '1.2.3',
         integrity: 'sha512-1.2.3',
       },
@@ -611,14 +616,14 @@ describe('updateProjectExtensions exm registry source', () => {
     expect(client.lockedRequests).toEqual([
       {
         registry: 'https://registry.example.com/exm/',
-        packageName: '@company/tool',
+        packageName: 'test.company-tool',
         version: '1.2.3',
         integrity: 'sha512-1.2.3',
         projectRoot,
       },
     ]);
     expect(result.updated).toEqual([]);
-    expect(result.skipped).toEqual(['company-tool']);
+    expect(result.skipped).toEqual(['test.company-tool']);
     await expect(access(targetPath)).resolves.toBeUndefined();
   });
 
@@ -631,7 +636,7 @@ describe('updateProjectExtensions exm registry source', () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'exm-registry-update-marker-missing-'));
     tempRoots.push(workspace);
     const projectRoot = path.join(workspace, 'project');
-    const targetPath = path.join(projectRoot, 'extensions', 'company-tool');
+    const targetPath = path.join(projectRoot, 'extensions', 'test.company-tool');
     await mkdir(targetPath, { recursive: true });
     await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({
       name: '@company/old-tool',
@@ -641,15 +646,15 @@ describe('updateProjectExtensions exm registry source', () => {
       exm: {
         registry: 'https://registry.example.com/exm/',
         dependencies: {
-          'company-tool': 'exm:@company/tool@1.2.3',
+          'test.company-tool': '1.2.3',
         },
       },
     }));
     await saveExmLock(projectRoot, {
       lockFileVersion: 1,
       extensions: {
-        'company-tool': {
-          spec: 'exm:@company/tool@1.2.3',
+        'test.company-tool': {
+          spec: '1.2.3',
           resolution: {
             version: '1.2.3',
             integrity: 'sha512-1.2.3',
@@ -665,7 +670,7 @@ describe('updateProjectExtensions exm registry source', () => {
     expect(client.requests).toEqual([]);
     expect(result.updated).toEqual([
       expect.objectContaining({
-        id: 'company-tool',
+        id: 'test.company-tool',
         path: targetPath,
         mode: 'copy',
       }),
@@ -673,7 +678,7 @@ describe('updateProjectExtensions exm registry source', () => {
     expect(result.skipped).toEqual([]);
     await expect(readInstallState(projectRoot)).resolves.toMatchObject({
       extensions: {
-        'company-tool': {
+        'test.company-tool': {
           version: '1.2.3',
           integrity: 'sha512-1.2.3',
         },
@@ -706,7 +711,7 @@ class FakeExmRegistryClient implements ExmRegistryClient {
       registry: request.registry,
       packageName: request.packageName,
       version: request.version,
-      resolved: `https://artifacts.example.com/exm-artifacts/%40company/tool/${request.version}/extension.tgz`,
+      resolved: `https://artifacts.example.com/exm-artifacts/test.company-tool/${request.version}/extension.tgz`,
       integrity: request.integrity,
     };
   }
@@ -715,6 +720,7 @@ class FakeExmRegistryClient implements ExmRegistryClient {
     await mkdir(targetPath, { recursive: true });
     await writeFile(path.join(targetPath, 'package.json'), JSON.stringify({
       name: resolved.packageName,
+      vortex: { extensionId: 'test.company-tool' },
       version: resolved.version,
     }));
   }
@@ -740,9 +746,9 @@ function createExmRegistry(client: FakeExmRegistryClient): ExtensionSourceRegist
 function createExmResolution(version: string): ResolvedExmRegistryExtension {
   return {
     registry: 'https://registry.example.com/exm/',
-    packageName: '@company/tool',
+    packageName: 'test.company-tool',
     version,
-    resolved: `https://artifacts.example.com/exm-artifacts/%40company/tool/${version}/extension.tgz`,
+    resolved: `https://artifacts.example.com/exm-artifacts/test.company-tool/${version}/extension.tgz`,
     integrity: `sha512-${version}`,
     size: Number(version.split('.').at(-1))! + 120,
   };

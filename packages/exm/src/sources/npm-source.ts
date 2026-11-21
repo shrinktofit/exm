@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import { assertExtensionIdentity } from '../config/extension-manifest.js';
 import process from 'node:process';
 import { assertDirectory, copyDirectory, pathExists } from '../fs/path.js';
 import { elapsedMs, nowMs } from '../timing.js';
@@ -104,6 +105,7 @@ export class NpmExtensionSource implements ExtensionSource {
       cachePopulateMs = elapsedMs(cachePopulateStartMs);
     }
 
+    await assertExtensionIdentity(resolved.sourcePath, resolved.id);
     const targetPath = path.join(context.installRoot, resolved.id);
     const cacheCopyStartMs = nowMs();
     await copyDirectory(resolved.sourcePath, targetPath);

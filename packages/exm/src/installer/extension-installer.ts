@@ -1,7 +1,8 @@
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { EXM_INSTALL_DIR, loadProjectConfig } from '../config/project-config.js';
+import { assertExtensionIdentity } from '../config/extension-manifest.js';
 import { assertPathInside, isSymbolicLinkPath, pathExists } from '../fs/path.js';
 import { EXM_LOCAL_LOCK_FILE, createExmLockEntry, loadExmLock, saveExmLock } from '../lock/exm-lock.js';
 import { createDefaultSourceRegistry, ExtensionSourceRegistry } from '../sources/registry.js';
@@ -111,6 +112,7 @@ export async function installProjectExtensions(
     const targetExists = await pathExists(targetPath);
 
     if (targetExists) {
+      await assertTargetDirectoryCase(installRoot, id);
       if (lockEntry === undefined) {
         const adoptedMaterialized = await adoptExistingUnmanagedTarget(source, resolved, sourceContext);
 
@@ -250,6 +252,7 @@ export async function updateProjectExtensions(
     const targetExists = await pathExists(targetPath);
 
     if (targetExists) {
+      await assertTargetDirectoryCase(installRoot, id);
       if (lockEntry === undefined) {
         const adoptedMaterialized = await adoptExistingUnmanagedTarget(source, resolved, sourceContext);
 
@@ -458,18 +461,25 @@ async function removeManagedTarget(installRoot: string, targetPath: string, id: 
   await rm(targetPath, { recursive: true, force: true });
 }
 
+async function assertTargetDirectoryCase(installRoot: string, id: string): Promise<void> {
+  if (!(await readdir(installRoot)).includes(id)) {
+    throw new Error(`Cannot install '${id}': the target directory exists with different letter case`);
+  }
+}
+
 async function targetMatchesInstallState(
   targetPath: string,
   installState: ExmInstallStateFile,
   id: string,
   expectedInstallStateEntry: ReturnType<typeof createInstallStateEntry>,
 ): Promise<boolean> {
-  if (expectedInstallStateEntry === undefined) {
-    return true;
+  const matches = expectedInstallStateEntry === undefined
+    || (!await isSymbolicLinkPath(targetPath)
+      && installStateEntryMatches(installState.extensions[id], expectedInstallStateEntry));
+  if (matches) {
+    await assertExtensionIdentity(targetPath, id);
   }
-
-  return !await isSymbolicLinkPath(targetPath)
-    && installStateEntryMatches(installState.extensions[id], expectedInstallStateEntry);
+  return matches;
 }
 
 function recordInstallStateEntry(
