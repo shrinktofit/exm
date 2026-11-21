@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { access, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { extract } from 'tar';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ExmRegistrySource, ExtensionSourceRegistry, installProjectExtensions, publishExtensionPackage, updateProjectExtensions } from '../src/index.js';
+import { createGitCacheKey, ExmRegistrySource, ExtensionSourceRegistry, installProjectExtensions, publishExtensionPackage, saveExmLock, updateProjectExtensions } from '../src/index.js';
 import type { ExmRegistryPublishRequest } from '../src/index.js';
 
 const roots: string[] = [];
@@ -32,10 +32,10 @@ async function workspace(): Promise<{ root: string; extension: string }> {
   return { root, extension };
 }
 
-async function commitGitManifest(repository: string, id: string | undefined, manifestPath = 'package.json'): Promise<void> {
+async function commitGitManifest(repository: string, id: string | undefined, manifestPath = 'package.json', name = '@fixture/source-package'): Promise<void> {
   const file = path.join(repository, manifestPath);
   await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, JSON.stringify({ name: '@fixture/source-package', vortex: { extensionId: id } }));
+  await writeFile(file, JSON.stringify({ name, vortex: { extensionId: id } }));
   await gitCommand('git', ['add', manifestPath], { cwd: repository });
   await gitCommand('git', [
     '-c', 'user.name=EXM Test', '-c', 'user.email=exm-test@example.invalid',
@@ -201,6 +201,73 @@ describe('one persistent identity for EXM publishing and installation', () => {
     expect(await readFile(path.join(target, 'local-notes.txt'), 'utf8')).toBe('keep local content');
     expect(await readFile(path.join(root, 'exm-lock.yaml'), 'utf8')).toBe(lockBefore);
   });
+
+  it('keeps a rejected sibling extension intact when another extension updates from the same Git repository', async () => {
+    /// @case Two installed subdirectories share a Git URL/ref; the next commit preserves A but renames B's ID.
+    /// @expect Updating A cannot expose the rejected identity through B's installed link.
+    const { root, extension } = await workspace();
+    await gitCommand('git', ['init', '--initial-branch=main'], { cwd: extension });
+    await commitGitManifest(extension, 'Example.A', 'packages/a/package.json');
+    await commitGitManifest(extension, 'Example.B', 'packages/b/package.json');
+    const url = `git+${pathToFileURL(extension).href}`;
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({
+      exm: { dependencies: { 'Example.A': `${url}#main:packages/a`, 'Example.B': `${url}#main:packages/b` } },
+    }));
+    const options = { projectRoot: root, cacheRoot: path.join(root, 'cache') };
+    await installProjectExtensions(options);
+    const before = await readFile(path.join(root, 'extensions/Example.B/package.json'), 'utf8');
+    await commitGitManifest(extension, 'Example.C', 'packages/b/package.json');
+    await expect(updateProjectExtensions(options)).rejects.toThrow(/identity mismatch/);
+    expect(await readFile(path.join(root, 'extensions/Example.B/package.json'), 'utf8')).toBe(before);
+  }, 15_000);
+
+  it('keeps another project on its installed Git revision when a shared-cache consumer updates', async () => {
+    /// @case Two projects install the same ID from a shared Git cache; one updates after a package rename.
+    /// @expect The other project's installed content stays on its own revision until it updates.
+    const { root, extension } = await workspace();
+    await gitCommand('git', ['init', '--initial-branch=main'], { cwd: extension });
+    await commitGitManifest(extension, 'Example.Tools', 'packages/tool/package.json');
+    const config = { exm: { dependencies: { 'Example.Tools': `git+${pathToFileURL(extension).href}#main:packages/tool` } } };
+    const otherProject = path.join(root, 'other-project');
+    await mkdir(otherProject);
+    for (const project of [root, otherProject]) {
+      await writeFile(path.join(project, 'package.json'), JSON.stringify(config));
+      await installProjectExtensions({ projectRoot: project, cacheRoot: path.join(root, 'cache') });
+    }
+    const otherManifest = path.join(otherProject, 'extensions/Example.Tools/package.json');
+    const before = await readFile(otherManifest, 'utf8');
+    await commitGitManifest(extension, 'Example.Tools', 'packages/tool/package.json', '@fixture/renamed-package');
+    await updateProjectExtensions({ projectRoot: root, cacheRoot: path.join(root, 'cache') });
+    expect(JSON.parse(await readFile(path.join(root, 'extensions/Example.Tools/package.json'), 'utf8')).name).toBe('@fixture/renamed-package');
+    expect(await readFile(otherManifest, 'utf8')).toBe(before);
+  }, 15_000);
+
+  it('migrates an existing shared-cache Git link without changing another legacy consumer', async () => {
+    /// @case A project already links the previous shared checkout layout and then updates with a valid ID.
+    /// @expect The project switches to its own checkout; another link to the old checkout stays unchanged.
+    const { root, extension } = await workspace();
+    await gitCommand('git', ['init', '--initial-branch=main'], { cwd: extension });
+    await commitGitManifest(extension, 'Example.Tools', 'packages/tool/package.json');
+    const url = pathToFileURL(extension).href;
+    const spec = `git+${url}#main:packages/tool`;
+    const cacheRoot = path.join(root, 'cache');
+    const legacyCheckout = path.join(cacheRoot, 'git', createGitCacheKey({ url, ref: 'main' }));
+    await mkdir(path.dirname(legacyCheckout), { recursive: true });
+    await gitCommand('git', ['clone', url, legacyCheckout]);
+    const legacySource = path.join(legacyCheckout, 'packages/tool');
+    const target = path.join(root, 'extensions/Example.Tools');
+    await mkdir(path.dirname(target), { recursive: true });
+    await symlink(legacySource, target, process.platform === 'win32' ? 'junction' : 'dir');
+    const otherLink = path.join(root, 'legacy-consumer');
+    await symlink(legacySource, otherLink, process.platform === 'win32' ? 'junction' : 'dir');
+    const { stdout } = await gitCommand('git', ['rev-parse', 'HEAD'], { cwd: legacyCheckout });
+    await saveExmLock(root, { lockFileVersion: 1, extensions: { 'Example.Tools': { spec, resolution: { commit: stdout.trim() } } } });
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ exm: { dependencies: { 'Example.Tools': spec } } }));
+    await commitGitManifest(extension, 'Example.Tools', 'packages/tool/package.json', '@fixture/renamed-package');
+    await updateProjectExtensions({ projectRoot: root, cacheRoot });
+    expect(JSON.parse(await readFile(path.join(target, 'package.json'), 'utf8')).name).toBe('@fixture/renamed-package');
+    expect(JSON.parse(await readFile(path.join(otherLink, 'package.json'), 'utf8')).name).toBe('@fixture/source-package');
+  }, 15_000);
 
   it.runIf(process.platform === 'win32')('rejects case-colliding target directories without replacing the existing extension', async () => {
     /// @case Two different IDs map to the same Windows directory name.

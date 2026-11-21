@@ -92,7 +92,7 @@ describe('createGitCacheKey', () => {
     expect(createGitCacheKey(specifier)).toHaveLength(16);
   });
 
-  it('should share the repository cache across different subpaths', () => {
+  it('should use the same repository key for different subpaths', () => {
     const baseSpecifier = {
       url: 'https://github.com/feb/example.git',
       ref: 'abcdef1234567890',
@@ -268,7 +268,7 @@ describe('GitExtensionSource', () => {
         commit: resolvedCommit,
       },
       cache: {
-        path: path.join(context.cacheRoot, 'git', createGitCacheKey(resolved.git!)),
+        path: path.dirname(path.dirname(await realpath(materialized.path))),
         hit: false,
       },
       timing: {
@@ -332,7 +332,7 @@ describe('GitExtensionSource', () => {
         commit: resolvedCommit,
       },
       cache: {
-        path: path.join(context.cacheRoot, 'git', createGitCacheKey(resolved.git!)),
+        path: path.dirname(path.dirname(await realpath(materialized.path))),
         hit: false,
       },
       timing: {
@@ -344,7 +344,7 @@ describe('GitExtensionSource', () => {
     const cachedMaterialized = await source.materialize(resolved, context);
 
     expect(cachedMaterialized.cache).toEqual({
-      path: path.join(context.cacheRoot, 'git', createGitCacheKey(resolved.git!)),
+      path: path.dirname(path.dirname(await realpath(materialized.path))),
       hit: true,
     });
     expect(cachedMaterialized.timing).toEqual({

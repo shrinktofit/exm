@@ -1,11 +1,11 @@
 import { Buffer } from 'node:buffer';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { assertExtensionIdentity, readManifestExtensionId } from '../config/extension-manifest.js';
 import { isJsonObject } from '../config/package-json.js';
-import { assertDirectory, assertPathInside, createDirectoryLink, isSameRealPath, pathExists } from '../fs/path.js';
+import { assertDirectory, assertPathInside, createDirectoryLink, isSameRealPath, isSymbolicLinkPath, pathExists } from '../fs/path.js';
 import { elapsedMs, nowMs } from '../timing.js';
 import { withSupportedDependencySpecifiers } from './specifier-help.js';
 import type { ExtensionRequest, ExtensionSource, MaterializedExtension, ResolvedExtension, SourceContext } from './source.js';
@@ -46,7 +46,7 @@ export class GitExtensionSource implements ExtensionSource {
 
   public async resolve(request: ExtensionRequest, context: SourceContext): Promise<ResolvedExtension> {
     const git = parseGitSpecifier(request.spec);
-    const checkoutPath = path.join(context.cacheRoot, 'git', createGitCacheKey(git));
+    const checkoutPath = getGitCheckoutPath(git, request.id, context);
     const sourcePath = git.subpath === undefined
       ? path.join(context.installRoot, request.id)
       : resolveGitSourcePath(checkoutPath, git);
@@ -87,7 +87,7 @@ export class GitExtensionSource implements ExtensionSource {
       };
     }
 
-    const checkoutPath = path.join(context.cacheRoot, 'git', createGitCacheKey(git));
+    const checkoutPath = getGitCheckoutPath(git, resolved.id, context);
     const sourcePath = resolveGitSourcePath(checkoutPath, git);
     const commit = await ensureGitCheckout(git, checkoutPath, resolved.id, this.commandRunner);
     await assertDirectory(sourcePath, `git source for "${resolved.id}"`);
@@ -149,7 +149,7 @@ export class GitExtensionSource implements ExtensionSource {
       };
     }
 
-    const checkoutPath = path.join(context.cacheRoot, 'git', createGitCacheKey(git));
+    const checkoutPath = getGitCheckoutPath(git, resolved.id, context);
     const sourcePath = resolveGitSourcePath(checkoutPath, git);
     const cacheHit = await pathExists(checkoutPath);
     const gitSyncStartMs = nowMs();
@@ -158,6 +158,9 @@ export class GitExtensionSource implements ExtensionSource {
     await assertDirectory(sourcePath, `git source for "${resolved.id}"`);
     await assertExtensionIdentity(sourcePath, resolved.id);
     const linkStartMs = nowMs();
+    if (await isSymbolicLinkPath(targetPath) && !await isSameRealPath(sourcePath, targetPath)) {
+      await unlink(targetPath);
+    }
     await createDirectoryLink(sourcePath, targetPath);
     const linkMs = elapsedMs(linkStartMs);
 
@@ -206,6 +209,16 @@ export function createGitCacheKey(specifier: GitSpecifier): string {
     .update(specifier.ref ?? '')
     .digest('hex')
     .slice(0, 16);
+}
+
+function getGitCheckoutPath(specifier: GitSpecifier, extensionId: string, context: SourceContext): string {
+  const owner = createHash('sha256')
+    .update(path.resolve(context.projectRoot))
+    .update('\0')
+    .update(extensionId)
+    .digest('hex')
+    .slice(0, 16);
+  return path.join(context.cacheRoot, 'git-checkouts', createGitCacheKey(specifier), owner);
 }
 
 async function ensureGitCheckout(
